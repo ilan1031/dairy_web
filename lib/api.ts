@@ -1,12 +1,15 @@
-const DEFAULT_API_URL = 'http://localhost:5096';
-
-function readEnv(name: string, fallback: string): string {
+function readEnv(name: string): string {
   const value = process.env[name]?.trim();
-  return value ? value : fallback;
+  return value ?? '';
 }
 
 export function getApiBaseUrl(): string {
-  const url = readEnv('NEXT_PUBLIC_API_URL', readEnv('NEXT_PUBLIC_API_BASE_URL', DEFAULT_API_URL));
+  const url = readEnv('NEXT_PUBLIC_API_URL') || readEnv('NEXT_PUBLIC_API_BASE_URL');
+
+  if (!url) {
+    throw new Error('Missing required environment variable: NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL');
+  }
+
   return url.replace(/\/+$/, '');
 }
 
