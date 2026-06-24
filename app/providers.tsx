@@ -4,6 +4,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import Repository from '@/lib/repository';
 import { translate } from '@/lib/translations';
+import { getWhoamiPromise, clearWhoamiPromise } from '@/lib/authApi';
 
 // Theme Context
 interface ThemeContextType {
@@ -33,13 +34,21 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
     const load = async () => {
       if (typeof window !== 'undefined' && localStorage.getItem('dairy_is_logged_in') === 'true') {
         try {
-          await Repository.ensureReady();
-          const profile = Repository.getProfile();
-          setIsLightThemeState(profile.isLightTheme);
-          setLanguageState(profile.language);
+          const session = await getWhoamiPromise();
+          if (session.authenticated) {
+            await Repository.ensureReady();
+            const profile = Repository.getProfile();
+            setIsLightThemeState(profile.isLightTheme);
+            setLanguageState(profile.language);
+          } else {
+            Repository.clearSession();
+            clearWhoamiPromise();
+            localStorage.removeItem('dairy_is_logged_in');
+          }
         } catch (err) {
           console.error('[AppSettings] Failed to load profile from API:', err);
           Repository.clearSession();
+          clearWhoamiPromise();
           localStorage.removeItem('dairy_is_logged_in');
         }
       }

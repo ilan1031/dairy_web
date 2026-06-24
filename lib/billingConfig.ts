@@ -20,6 +20,7 @@ export interface BillingConfig {
   showStockWarnings: boolean;
   maxVolume: number;
   volumeStep: number;
+  ownerUserId?: string;
   updatedAt: number;
 }
 

@@ -48,6 +48,14 @@ export const tamilTranslations: Record<string, string> = {
   "Preferred QR Sync method": "விருப்பமான QR ஒத்திசைவு முறை",
   "Add New Customer": "புதிய வாடிக்கையாளரைச் சேர்",
   "Milk Sale Saved Successfully! (Synced)": "பால் விற்பனை வெற்றிகரமாக சேமிக்கப்பட்டது! (ஒத்திசைக்கப்பட்டது)",
+  "Yes": "ஆம்",
+  "No": "இல்லை",
+  "Confirm Sale": "விற்பனையை உறுதிப்படுத்து",
+  "Confirm Customer": "வாடிக்கையாளரை உறுதிப்படுத்து",
+  "Are you sure you want to save this milk sale?": "இந்த பால் விற்பனையைச் சேமிக்க விரும்புகிறீர்களா?",
+  "Are you sure you want to add this customer?": "இந்த வாடிக்கையாளரைச் சேர்க்க விரும்புகிறீர்களா?",
+  "Permission denied": "அனுமதி மறுக்கப்பட்டது",
+  "Location is required": "இருப்பிடம் தேவை",
   "BANK": "வங்கி",
   "Collect Cash": "பணம் வசூலிக்கவும்",
   "Enterprise Reports": "வணிக அறிக்கைகள்",
@@ -180,7 +188,24 @@ export const tamilTranslations: Record<string, string> = {
   "Close": "மூடு",
   "Cancel": "ரத்து செய்",
   "Save": "சேமி",
-  "Registered buyers list: %s": "பதிவுசெய்யப்பட்ட வாங்குபவர்கள்: %s"
+  "Registered buyers list: %s": "பதிவுசெய்யப்பட்ட வாங்குபவர்கள்: %s",
+  
+  // System Branding & User Switching
+  "System Branding": "கணினி பிராண்டிங்",
+  "Depot logo, custom bank/cooperative name & layout header titles": "டிப்போ லோகோ, தனிப்பயன் வங்கி/கூட்டுறவு பெயர் & லேஅவுட் தலைப்புகள்",
+  "System Header / App Name": "கணினி தலைப்பு / பயன்பாட்டின் பெயர்",
+  "Depot / Farm Address": "டிப்போ / பண்ணை முகவரி",
+  "Depot Logo": "டிப்போ லோகோ",
+  "Upload Logo Image": "லோகோ படத்தை பதிவேற்றவும்",
+  "Or Paste Logo URL": "அல்லது லோகோ URL-ஐ ஒட்டவும்",
+  "View as": "பார்க்கும் பயனர்",
+  "All": "அனைத்தும்",
+  "Loading branding config...": "பிராண்டிங் அமைப்புகள் ஏற்றப்படுகின்றன...",
+  "Branding settings": "பிராண்டிங் அமைப்புகள்",
+  "Branding settings saved successfully!": "பிராண்டிங் அமைப்புகள் வெற்றிகரமாகச் சேமிக்கப்பட்டன!",
+  "Save branding settings?": "பிராண்டிங் அமைப்புகளைச் சேமிக்கவா?",
+  "Logo image must be smaller than 2MB": "லோகோ படம் 2MB-க்கு குறைவாக இருக்க வேண்டும்",
+  "No Logo": "லோகோ இல்லை"
 };
 
 export function translate(key: string, lang: string, ...args: any[]): string {

@@ -1,4 +1,4 @@
-export type PermissionAction = 'view' | 'create' | 'edit' | 'delete' | 'export';
+export type PermissionAction = 'view' | 'create' | 'edit' | 'delete' | 'export' | 'share' | 'exportAll';
 
 export interface CatalogPage {
   key: string;

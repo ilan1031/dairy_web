@@ -33,10 +33,11 @@ import {
 } from 'lucide-react';
 
 interface SalesTabProps {
-  onSuccessToast: (message?: string) => void;
+  onSuccessToast: (message?: string, type?: 'success' | 'error' | 'info') => void;
+  onSaleCreated?: (sale: Sale) => void;
 }
 
-export default function SalesTab({ onSuccessToast }: SalesTabProps) {
+export default function SalesTab({ onSuccessToast, onSaleCreated }: SalesTabProps) {
   const { t } = useLanguage();
 
   // Procurement database states
@@ -87,6 +88,10 @@ export default function SalesTab({ onSuccessToast }: SalesTabProps) {
   const [directRegName, setDirectRegName] = useState('');
   const [directRegPhone, setDirectRegPhone] = useState('');
   const [directRegQr, setDirectRegQr] = useState('UPI'); // UPI or CASH
+
+  // Confirmation Modals State
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [showAddCustomerConfirm, setShowAddCustomerConfirm] = useState(false);
 
   const loadData = async () => {
     const custs = await Repository.getAllCustomers();
@@ -179,21 +184,29 @@ export default function SalesTab({ onSuccessToast }: SalesTabProps) {
 
   const finalCostCalculated = liters * rateResolved;
 
-  // Handle save sale
-  const handleSaveSale = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!hasPageAction('Sales', 'create')) return alert('Permission denied');
+  // Handle save sale (initiator)
+  const handleSaveSale = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!hasPageAction('Sales', 'create')) {
+      onSuccessToast(t('Permission denied'), 'error');
+      return;
+    }
     if (!selectedCustomer || liters <= 0 || rateResolved <= 0) return;
 
-    if (!window.confirm(t('Are you sure you want to save this milk sale?'))) return;
+    if (billingConfig?.requireLocation && !location.trim()) {
+      onSuccessToast(t('Location is required'), 'error');
+      return;
+    }
 
+    setShowSaveConfirm(true);
+  };
+
+  // Perform actual save logic after confirmation
+  const executeSaveSale = async () => {
+    if (!selectedCustomer) return;
     const selectedMethod = billingConfig?.paymentMethods.find(m => m.code === paymentTypeChoice);
     const paymentStatus = selectedMethod?.marksPending ? 'PENDING' : 'PAID';
     const resolvedPaymentType = selectedMethod?.marksPending ? 'NONE' : paymentTypeChoice;
-
-    if (billingConfig?.requireLocation && !location.trim()) {
-      return alert('Location is required');
-    }
 
     const newSale: Sale = {
       id: Math.random().toString(36).substr(2, 9),
@@ -222,18 +235,27 @@ export default function SalesTab({ onSuccessToast }: SalesTabProps) {
     setPaymentTypeChoice(defaultPay?.code || 'CASH');
     setLocation(billingConfig?.defaultLocation || 'Simulated Location (GPS Locked)');
 
-    onSuccessToast('Milk sale saved and synced!');
+    onSuccessToast(t('Milk sale saved and synced!'), 'success');
     loadData();
+    if (onSaleCreated) {
+      onSaleCreated(newSale);
+    }
   };
 
-  // Immediate Quick Add Customer
-  const handleQuickAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!hasPageAction('Sales', 'create')) return alert('Permission denied');
+  // Immediate Quick Add Customer (initiator)
+  const handleQuickAdd = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!hasPageAction('Sales', 'create')) {
+      onSuccessToast(t('Permission denied'), 'error');
+      return;
+    }
     if (!directRegName) return;
 
-    if (!window.confirm(t('Are you sure you want to add this customer?'))) return;
+    setShowAddCustomerConfirm(true);
+  };
 
+  // Perform actual quick add logic after confirmation
+  const executeQuickAdd = async () => {
     const newId = Math.random().toString(36).substr(2, 9);
     const newCust: Customer = {
       id: newId,
@@ -254,6 +276,7 @@ export default function SalesTab({ onSuccessToast }: SalesTabProps) {
     setSelectedCustomer(newCust);
     setInputQuery(newCust.name);
     setIsDropdownExpanded(false);
+    onSuccessToast(t('Customer registered successfully!'), 'success');
     loadData();
   };
 
@@ -781,8 +804,73 @@ export default function SalesTab({ onSuccessToast }: SalesTabProps) {
             </p>
           </div>
         </div>
-      </div>
+      {/* Save Confirmation Modal */}
+      {showSaveConfirm && (
+        <div className="dialog-overlay" style={{ zIndex: 1100 }}>
+          <div className="dialog-content" style={{ maxWidth: '400px', textAlign: 'center', padding: '24px' }}>
+            <h3 style={{ color: 'var(--primary-milk)', marginBottom: '16px', fontSize: '1.25rem' }}>
+              {t('Confirm Sale')}
+            </h3>
+            <p style={{ marginBottom: '24px', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
+              {t('Are you sure you want to save this milk sale?')}
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button 
+                className="btn btn-outline" 
+                onClick={() => setShowSaveConfirm(false)}
+                style={{ flex: 1 }}
+              >
+                {t('No')}
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={async () => {
+                  setShowSaveConfirm(false);
+                  await executeSaveSale();
+                }}
+                style={{ flex: 1 }}
+              >
+                {t('Yes')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Customer Confirmation Modal */}
+      {showAddCustomerConfirm && (
+        <div className="dialog-overlay" style={{ zIndex: 1100 }}>
+          <div className="dialog-content" style={{ maxWidth: '400px', textAlign: 'center', padding: '24px' }}>
+            <h3 style={{ color: 'var(--primary-milk)', marginBottom: '16px', fontSize: '1.25rem' }}>
+              {t('Confirm Customer')}
+            </h3>
+            <p style={{ marginBottom: '24px', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
+              {t('Are you sure you want to add this customer?')}
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button 
+                className="btn btn-outline" 
+                onClick={() => setShowAddCustomerConfirm(false)}
+                style={{ flex: 1 }}
+              >
+                {t('No')}
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={async () => {
+                  setShowAddCustomerConfirm(false);
+                  await executeQuickAdd();
+                }}
+                style={{ flex: 1 }}
+              >
+                {t('Yes')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
+  </div>
   );
 }

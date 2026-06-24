@@ -12,7 +12,7 @@ export function getCurrentUser(): UserModel | null {
 }
 
 export function isSuperAdminSession(): boolean {
-  return Repository.isSuperAdmin();
+  return Repository.isSessionSuperAdmin() || Repository.isSuperAdmin();
 }
 
 export function hasPageAction(page: string, action: PermissionAction): boolean {
@@ -28,14 +28,18 @@ export function hasPageAction(page: string, action: PermissionAction): boolean {
   const pages = perms.allowedPages || [];
   if (!pages.includes('*') && !pages.includes(page)) return false;
 
-  const map: Record<PermissionAction, keyof PermissionSet> = {
+  const map: Record<PermissionAction, keyof PermissionSet | null> = {
     view: 'canRead',
     create: 'canCreate',
     edit: 'canUpdate',
     delete: 'canDelete',
     export: 'canRead',
+    share: 'canRead',
+    exportAll: 'canRead',
   };
-  return Boolean(perms[map[action]]);
+  const key = map[action];
+  if (!key) return false;
+  return Boolean(perms[key]);
 }
 
 export function canAccessField(page: string, field: string): boolean {
