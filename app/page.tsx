@@ -115,7 +115,6 @@ function HomeContent() {
 
       if (data.success) {
         localStorage.setItem('dairy_is_logged_in', 'true');
-        if (data.profile) Repository.saveProfile(data.profile);
         Repository.clearSession();
         await Repository.initialize();
         Repository.setSessionUser(
@@ -149,7 +148,6 @@ function HomeContent() {
       const data = await res.json();
 
       if (data.success) {
-        if (data.profile) Repository.saveProfile(data.profile);
         localStorage.setItem('dairy_is_logged_in', 'true');
         Repository.clearSession();
         await Repository.initialize();
