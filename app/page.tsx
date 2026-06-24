@@ -45,6 +45,8 @@ export default function Home() {
 function HomeContent() {
   const { t, language, setLanguage } = useLanguage();
   const { isLightTheme, toggleTheme } = useTheme();
+  const appLogoPath = process.env.NEXT_PUBLIC_APP_LOGO_PATH || '/abielan_app_logo.png';
+  const abielanUrl = process.env.NEXT_PUBLIC_ABIELAN_URL || 'https://www.abielan.in';
 
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -203,7 +205,7 @@ function HomeContent() {
         <div className="auth-wrapper" style={{ flexDirection: 'column' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', maxWidth: '375px', width: '100%', textAlign: 'center', padding: '24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '120px', height: '120px', borderRadius: '50%', backgroundColor: 'rgba(255, 255, 255, 0.15)', marginBottom: '24px', backdropFilter: 'blur(4px)', boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.07)' }}>
-              <img src="/abielan_app_logo.png" alt="Dairy ERP Logo" style={{ width: '70px', height: '70px', borderRadius: '14px', objectFit: 'contain' }} />
+              <img src={appLogoPath} alt="Dairy ERP Logo" style={{ width: '70px', height: '70px', borderRadius: '14px', objectFit: 'contain' }} />
             </div>
             <h1 style={{ color: '#FFFFFF', fontSize: '2.6rem', fontWeight: 900, marginBottom: '8px', letterSpacing: '-0.04em' }}>
               {t('Dairy ERP')}
@@ -229,7 +231,7 @@ function HomeContent() {
             </button>
 
             <div style={{ marginTop: '48px', fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 600 }}>
-              {t('Powered by')} <a href="https://www.abielan.in" target="_blank" rel="noopener noreferrer" style={{ color: '#FFFFFF', fontWeight: 800, textDecoration: 'underline' }}>{t('abielan Tech.')}</a> ({t('www.abielan.in')})
+              {t('Powered by')} <a href={abielanUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#FFFFFF', fontWeight: 800, textDecoration: 'underline' }}>{t('abielan Tech.')}</a> ({t('www.abielan.in')})
             </div>
           </div>
         </div>
@@ -241,7 +243,7 @@ function HomeContent() {
         <div className="auth-card">
           {authScreen === 'LOGIN' ? (
             <form onSubmit={handleLoginSubmit} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
-              <img src="/abielan_app_logo.png" alt="Dairy ERP Logo" style={{ width: '70px', height: '70px', borderRadius: '14px', marginBottom: '4px', objectFit: 'contain' }} />
+              <img src={appLogoPath} alt="Dairy ERP Logo" style={{ width: '70px', height: '70px', borderRadius: '14px', marginBottom: '4px', objectFit: 'contain' }} />
               
               <div style={{ textAlign: 'center', marginBottom: '4px' }}>
                 <h1 style={{ color: '#0D47A1', fontSize: '1.7rem', fontWeight: 900, marginBottom: '2px', letterSpacing: '-0.03em' }}>

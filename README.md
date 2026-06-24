@@ -16,6 +16,17 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+### Environment variables
+
+Create a `.env.local` file with the following values if you want to override the defaults:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:5096
+NEXT_PUBLIC_API_BASE_URL=http://localhost:5096
+NEXT_PUBLIC_APP_LOGO_PATH=/abielan_app_logo.png
+NEXT_PUBLIC_ABIELAN_URL=https://www.abielan.in
+```
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

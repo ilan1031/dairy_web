@@ -1,7 +1,12 @@
 const DEFAULT_API_URL = 'http://localhost:5096';
 
+function readEnv(name: string, fallback: string): string {
+  const value = process.env[name]?.trim();
+  return value ? value : fallback;
+}
+
 export function getApiBaseUrl(): string {
-  const url = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_URL;
+  const url = readEnv('NEXT_PUBLIC_API_URL', readEnv('NEXT_PUBLIC_API_BASE_URL', DEFAULT_API_URL));
   return url.replace(/\/+$/, '');
 }
 
