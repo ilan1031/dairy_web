@@ -259,6 +259,7 @@ class Repository {
   static saveProfile(profile: Partial<Profile>): void {
     const updated = { ...this.getProfile(), ...profile };
     this.cache.profile = updated;
+    if (!this._initialized) return;
     saveProfileApi(updated).catch((err) => console.error('[Repo] Profile save failed:', err));
   }
 

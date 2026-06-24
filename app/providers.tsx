@@ -39,6 +39,8 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
           setLanguageState(profile.language);
         } catch (err) {
           console.error('[AppSettings] Failed to load profile from API:', err);
+          Repository.clearSession();
+          localStorage.removeItem('dairy_is_logged_in');
         }
       }
       setMounted(true);

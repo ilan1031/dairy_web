@@ -21,7 +21,9 @@ export async function apiPost<TBody extends object = Record<string, unknown>>(
 ): Promise<Response> {
   return fetch(apiUrl(path), {
     method: 'POST',
+    mode: 'cors',
     credentials: 'include',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
   });
