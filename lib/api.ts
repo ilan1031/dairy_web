@@ -1,16 +1,11 @@
-function readEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  return value ?? '';
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || '').trim();
+
+if (!API_BASE_URL) {
+  throw new Error('Missing required environment variable: NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL');
 }
 
 export function getApiBaseUrl(): string {
-  const url = readEnv('NEXT_PUBLIC_API_URL') || readEnv('NEXT_PUBLIC_API_BASE_URL');
-
-  if (!url) {
-    throw new Error('Missing required environment variable: NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL');
-  }
-
-  return url.replace(/\/+$/, '');
+  return API_BASE_URL.replace(/\/+$/, '');
 }
 
 export function apiUrl(path: string): string {
