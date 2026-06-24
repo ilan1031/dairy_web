@@ -21,6 +21,7 @@ import {
 import InventoryTab from './InventoryTab';
 import AdminSettings from './AdminSettings';
 import BillingControlsEditor from './settings/BillingControlsEditor';
+import BrandingControlsEditor from './settings/BrandingControlsEditor';
 import AuditLogsPanel from './settings/AuditLogsPanel';
 import { hasPermission, isSuperAdminSession, hasPageAction } from '@/lib/permissions';
 import { changePasswordApi } from '@/lib/authApi';
@@ -45,6 +46,7 @@ export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabPro
   const [showInventory, setShowInventory] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showBillingControls, setShowBillingControls] = useState(false);
+  const [showBranding, setShowBranding] = useState(false);
   const [showAuditLogs, setShowAuditLogs] = useState(false);
 
   const [registerName, setRegisterName] = useState('');
@@ -155,6 +157,7 @@ export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabPro
           inventory: parseBackupField(raw.inventory, []),
           users: parseBackupField(raw.users, []),
           billingConfig: parseBackupField(raw.billingConfig, null),
+          brandingConfig: parseBackupField(raw.brandingConfig, null),
           auditLogs: parseBackupField(raw.auditLogs, []),
         };
         if (!payload.profile) {
@@ -200,6 +203,18 @@ export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabPro
       <BillingControlsEditor
         onBack={() => {
           setShowBillingControls(false);
+          onSuccessToast();
+        }}
+        onSuccessToast={onSuccessToast}
+      />
+    );
+  }
+
+  if (showBranding) {
+    return (
+      <BrandingControlsEditor
+        onBack={() => {
+          setShowBranding(false);
           onSuccessToast();
         }}
         onSuccessToast={onSuccessToast}
@@ -388,6 +403,26 @@ export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabPro
                   <h4 style={{ margin: 0, fontSize: '1.05rem' }}>Billing Controls</h4>
                   <p style={{ margin: '2px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     Payment modes, volume presets &amp; billing form rules
+                  </p>
+                </div>
+              </div>
+              <ChevronRight size={20} style={{ color: 'var(--text-secondary)' }} />
+            </div>
+          )}
+
+          {/* Branding Settings Navigation Card */}
+          {(hasPageAction('Settings', 'edit') || isSuperAdminSession()) && (
+            <div
+              className="card"
+              onClick={() => setShowBranding(true)}
+              style={{ cursor: 'pointer', borderLeft: '4px solid var(--primary-gold)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                <Palette size={22} style={{ color: 'var(--primary-gold)' }} />
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '1.05rem' }}>{t('System Branding')}</h4>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    {t('Depot logo, custom bank/cooperative name & layout header titles')}
                   </p>
                 </div>
               </div>

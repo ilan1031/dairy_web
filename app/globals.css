@@ -616,3 +616,41 @@ h1, h2, h3, h4, h5, h6 {
   background-origin: border-box;
   background-clip: padding-box, border-box;
 }
+
+/* Media Queries for Small Mobile Devices */
+@media (max-width: 600px) {
+  .nav-logo-text {
+    font-size: 1.1rem;
+  }
+  .nav-actions {
+    gap: 6px !important;
+  }
+  .view-as-label {
+    display: none !important;
+  }
+  .view-as-select {
+    width: 105px !important;
+    font-size: 0.76rem !important;
+    height: 30px !important;
+    padding: 0 4px !important;
+  }
+  .lang-toggle-btn {
+    padding: 6px 8px !important;
+    font-size: 0.78rem !important;
+    height: 30px !important;
+    display: flex;
+    align-items: center;
+  }
+  .nav-actions .btn {
+    padding: 6px !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .nav-logo-text {
+    display: none !important;
+  }
+  .view-as-select {
+    width: 95px !important;
+  }
+}

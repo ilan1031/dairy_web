@@ -11,12 +11,26 @@ export interface WhoamiResponse {
   error?: string;
 }
 
+let whoamiPromise: Promise<WhoamiResponse> | null = null;
+
 export async function whoamiApi(): Promise<WhoamiResponse> {
   const res = await apiPost('/api/auth/whoami');
   return res.json();
 }
 
+export function getWhoamiPromise(forceRefresh = false): Promise<WhoamiResponse> {
+  if (!whoamiPromise || forceRefresh) {
+    whoamiPromise = whoamiApi();
+  }
+  return whoamiPromise;
+}
+
+export function clearWhoamiPromise(): void {
+  whoamiPromise = null;
+}
+
 export async function logoutApi(): Promise<void> {
+  clearWhoamiPromise();
   await apiPost('/api/auth/logout');
 }
 

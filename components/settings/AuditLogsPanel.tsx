@@ -27,7 +27,14 @@ export default function AuditLogsPanel({ onBack }: AuditLogsPanelProps) {
   const loadLogs = async () => {
     setLoading(true);
     try {
-      const result = await listAuditApi({ page, limit, search, resourceType: resourceFilter || undefined });
+      const selectedUserId = Repository.isSuperAdmin() ? undefined : (Repository.getCurrentUser()?.id || undefined);
+      const result = await listAuditApi({
+        page,
+        limit,
+        search,
+        resourceType: resourceFilter || undefined,
+        selectedUserId,
+      });
       setLogs((result.logs || []) as unknown as AuditLogEntry[]);
       setTotal(result.total);
       setPages(result.pages);
