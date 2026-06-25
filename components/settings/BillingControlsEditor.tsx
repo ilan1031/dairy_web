@@ -23,6 +23,7 @@ import {
   Lock,
   X,
 } from 'lucide-react';
+import CowLoading from '@/components/ui/CowLoading';
 
 interface BillingControlsEditorProps {
   onBack: () => void;
@@ -151,8 +152,8 @@ export default function BillingControlsEditor({ onBack, onSuccessToast }: Billin
 
   if (!loaded) {
     return (
-      <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)' }}>
-        Loading billing settings from server...
+      <div className="card">
+        <CowLoading message="Loading billing settings from server..." size="md" />
       </div>
     );
   }

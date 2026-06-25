@@ -654,3 +654,49 @@ h1, h2, h3, h4, h5, h6 {
     width: 95px !important;
   }
 }
+
+/* 3D Running Cow Loading */
+.cow-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+.cow-loading--inline {
+  flex-direction: row;
+  gap: 8px;
+  padding: 0;
+}
+
+.cow-loading--fullscreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.cow-loading__message {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.cow-loading--fullscreen .cow-loading__message {
+  color: #FFFFFF;
+}
+
+.cow-loading-fallback {
+  background: linear-gradient(135deg, rgba(30, 136, 229, 0.15), rgba(46, 125, 50, 0.15));
+  animation: cow-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes cow-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1); }
+}

@@ -11,6 +11,7 @@ import { canAccessPage } from '@/lib/permissions';
 import { getSubscriptionStatus } from '@/lib/subscription';
 import AppToast, { ToastType } from '@/components/AppToast';
 import PayNowScreen from '@/components/PayNowScreen';
+import CowLoading from '@/components/ui/CowLoading';
 import { 
   LayoutDashboard, 
   PlusCircle, 
@@ -272,23 +273,8 @@ function HomeContent() {
 
   if (!isReady) {
     return (
-      <div className="auth-wrapper" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-          <div style={{
-            width: '48px',
-            height: '48px',
-            border: '4px solid rgba(255,255,255,0.2)',
-            borderTopColor: '#FFFFFF',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite'
-          }} />
-          <p style={{ color: '#FFFFFF', fontSize: '0.95rem', fontWeight: 600 }}>{t('Loading data...')}</p>
-        </div>
-        <style jsx global>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
+      <div className="auth-wrapper">
+        <CowLoading message={t('Loading data...')} size="lg" fullScreen />
       </div>
     );
   }
