@@ -21,6 +21,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { hasPageAction, canAccessField } from '@/lib/permissions';
+import CowLoading from '@/components/ui/CowLoading';
 
 
 interface DashboardTabProps {
@@ -164,7 +165,7 @@ export default function DashboardTab({
           disabled={isSyncing}
           style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 16px', borderRadius: 'var(--radius-sm)' }}
         >
-          <RefreshCw size={14} className={isSyncing ? 'spin-animation' : ''} />
+          {isSyncing ? <CowLoading size="xs" inline /> : <RefreshCw size={14} />}
           <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
             {isSyncing ? t('Syncing') : t('🟢 Synced')}
           </span>
@@ -446,17 +447,6 @@ export default function DashboardTab({
           </div>
         )}
       </div>
-
-      {/* Embedded Spinner CSS */}
-      <style jsx global>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .spin-animation {
-          animation: spin 1s linear infinite;
-        }
-      `}</style>
     </div>
   );
 }

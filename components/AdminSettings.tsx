@@ -17,7 +17,8 @@ import {
   getIpLimitApi,
   updateIpLimitApi,
 } from '@/lib/dataApi';
-import { PlusCircle, Users, ArrowLeft, Trash2, Loader2, Shield, Key, Clock, Save } from 'lucide-react';
+import { PlusCircle, Users, ArrowLeft, Trash2, Shield, Key, Clock, Save } from 'lucide-react';
+import CowLoading from '@/components/ui/CowLoading';
 
 interface AdminSettingsProps {
   onBack: () => void;
@@ -700,7 +701,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
         <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>
           <Users size={18} style={{ marginRight: 8 }} /> Admin Controls
         </h2>
-        <div>{saving && <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />}</div>
+        <div>{saving && <CowLoading size="xs" inline />}</div>
       </div>
 
       {isSuperAdminSession() && catalog && (
@@ -778,7 +779,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
               <button type="submit" className="btn btn-primary" disabled={tokenConfigSaving}>
-                {tokenConfigSaving ? 'Saving...' : 'Update Expirations'}
+                {tokenConfigSaving ? <CowLoading size="xs" inline message="Saving..." /> : 'Update Expirations'}
               </button>
             </div>
           </form>
@@ -815,7 +816,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                 setIpLimitLoading(false);
               }
             }} disabled={ipLimitLoading}>
-              {ipLimitLoading ? 'Loading…' : 'Lookup'}
+              {ipLimitLoading ? <CowLoading size="xs" inline message="Loading…" /> : 'Lookup'}
             </button>
           </div>
 
@@ -868,7 +869,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                 setIpLimitSaving(false);
               }
             }} disabled={ipLimitSaving}>
-              {ipLimitSaving ? 'Saving…' : 'Save Limit'}
+              {ipLimitSaving ? <CowLoading size="xs" inline message="Saving…" /> : 'Save Limit'}
             </button>
           </div>
         </div>
@@ -888,7 +889,11 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
       </div>
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Users {loading ? '(loading...)' : `(${users.length})`}</h3>
+        <h3 style={{ marginTop: 0 }}>Users {!loading ? `(${users.length})` : ''}</h3>
+        {loading ? (
+          <CowLoading message="Loading users..." size="sm" />
+        ) : (
+        <>
         {users.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: '0.85rem' }}>
             <input
@@ -1152,6 +1157,8 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
             )}
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

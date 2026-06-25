@@ -1,0 +1,2 @@
+Cow 3D model: Quaternius "Ultimate Animated Animals" pack (CC0 Public Domain).
+Source processed via https://github.com/danwahl/animasim (MIT).
