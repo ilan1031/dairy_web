@@ -418,6 +418,11 @@ export default function DashboardTab({
                       minute: '2-digit'
                     })}
                   </span>
+                  {sale.ownerName && (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--primary-milk)', fontWeight: 600 }}>
+                      {sale.ownerName}
+                    </span>
+                  )}
                   {sale.location && (
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500 }}>
                       <MapPin size={11} style={{ color: 'var(--primary-milk)' }} /> {sale.location}

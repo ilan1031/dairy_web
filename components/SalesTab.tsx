@@ -321,6 +321,11 @@ export default function SalesTab({ onSuccessToast, onSaleCreated }: SalesTabProp
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                     📞 {selectedCustomer.phone || t('No phone registered')}
                   </span>
+                  {selectedCustomer.ownerName && (
+                    <div style={{ fontSize: '0.76rem', color: 'var(--primary-milk)', fontWeight: 600, marginTop: '2px' }}>
+                      Owner: {selectedCustomer.ownerName}
+                    </div>
+                  )}
                   {customerOutstandingDues > 0 && (
                     <div style={{ fontSize: '0.78rem', color: 'var(--alert-red)', fontWeight: 700, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
                       <span>⚠️</span> {t('Outstanding Debt')}: ₹{customerOutstandingDues.toFixed(0)}
@@ -370,7 +375,14 @@ export default function SalesTab({ onSuccessToast, onSaleCreated }: SalesTabProp
                       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--input-bg)'}
                       onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                     >
-                      <strong style={{ fontSize: '0.9rem' }}>{c.name}</strong>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <strong style={{ fontSize: '0.9rem' }}>{c.name}</strong>
+                        {c.ownerName && (
+                          <span style={{ fontSize: '0.74rem', color: 'var(--primary-milk)', fontWeight: 600 }}>
+                            Owner: {c.ownerName}
+                          </span>
+                        )}
+                      </div>
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{c.phone}</span>
                     </div>
                   ))}

@@ -35,6 +35,8 @@ export interface Customer {
   address?: string;
   notes?: string;
   ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   updatedAt: number;
 }
 
@@ -50,6 +52,8 @@ export interface Sale {
   paymentType: string;
   location: string;
   ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -58,6 +62,8 @@ export interface PriceConfig {
   milkType: string;
   currentPrice: number;
   ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   updatedAt: number;
 }
 
@@ -67,6 +73,8 @@ export interface PriceLog {
   oldPrice: number;
   newPrice: number;
   ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   timestamp: number;
 }
 
@@ -77,6 +85,8 @@ export interface MilkInventory {
   a2Liters: number;
   customStocksRaw: string;
   ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   updatedAt: number;
 }
 
@@ -311,8 +321,24 @@ class Repository {
     saveProfileApi(updated).catch((err) => console.error('[Repo] Profile save failed:', err));
   }
 
+  private static resolveOwnerMeta(ownerUserId?: string): { ownerName?: string; ownerEmail?: string } {
+    const targetUserId = ownerUserId || this.cache.currentUser?.id;
+    if (!targetUserId) return {};
+    const user = this.cache.users.find((u) => u.id === targetUserId || u.email === targetUserId);
+    if (!user) return {};
+    return {
+      ownerName: user.profile?.displayName || user.name || user.email || undefined,
+      ownerEmail: user.email || undefined,
+    };
+  }
+
+  private static withOwnerMeta<T extends { ownerUserId?: string }>(item: T): T {
+    const ownerMeta = this.resolveOwnerMeta(item.ownerUserId);
+    return { ...item, ...ownerMeta };
+  }
+
   static async getCustomers(batchSize = 20, lastVisibleId?: string): Promise<{ data: Customer[]; hasMore: boolean }> {
-    const all = [...this.cache.customers].sort((a, b) => a.name.localeCompare(b.name));
+    const all = [...this.cache.customers].sort((a, b) => a.name.localeCompare(b.name)).map((customer) => this.withOwnerMeta(customer));
     let startIndex = 0;
     if (lastVisibleId) {
       const index = all.findIndex((c) => c.id === lastVisibleId);
@@ -323,7 +349,7 @@ class Repository {
   }
 
   static async getAllCustomers(): Promise<Customer[]> {
-    return [...this.cache.customers];
+    return this.cache.customers.map((customer) => this.withOwnerMeta(customer));
   }
 
   static async saveCustomer(customer: Customer): Promise<void> {
@@ -344,7 +370,7 @@ class Repository {
   }
 
   static async getSales(batchSize = 20, lastVisibleId?: string, filterCustomer?: string, filterDateRange?: string): Promise<{ data: Sale[]; hasMore: boolean }> {
-    let filtered = [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt);
+    let filtered = [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
     if (filterCustomer) {
       filtered = filtered.filter((s) => s.customerName.toLowerCase().includes(filterCustomer.toLowerCase()));
     }
@@ -367,7 +393,7 @@ class Repository {
   }
 
   static async getAllSales(): Promise<Sale[]> {
-    return [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt);
+    return [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
   }
 
   static async saveSale(sale: Sale): Promise<void> {
@@ -400,7 +426,7 @@ class Repository {
   }
 
   static getPriceConfigs(): PriceConfig[] {
-    return [...this.cache.priceConfigs];
+    return this.cache.priceConfigs.map((config) => this.withOwnerMeta(config));
   }
 
   static async savePriceConfig(milkType: string, newPrice: number, oldMilkType?: string): Promise<void> {
@@ -436,7 +462,7 @@ class Repository {
   }
 
   static getPriceLogs(): PriceLog[] {
-    return [...this.cache.priceLogs];
+    return this.cache.priceLogs.map((log) => this.withOwnerMeta(log));
   }
 
   static getUsers(): UserModel[] {
@@ -464,7 +490,7 @@ class Repository {
   }
 
   static getMilkInventories(): MilkInventory[] {
-    return [...this.cache.inventory];
+    return this.cache.inventory.map((inventory) => this.withOwnerMeta(inventory));
   }
 
   static async saveMilkInventory(inventory: MilkInventory): Promise<void> {
