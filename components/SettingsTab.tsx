@@ -27,11 +27,12 @@ import { hasPermission, isSuperAdminSession, hasPageAction } from '@/lib/permiss
 import { changePasswordApi } from '@/lib/authApi';
 
 interface SettingsTabProps {
+  viewAsUserId?: string;
   onSuccessToast: () => void;
   onLogout: () => void;
 }
 
-export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabProps) {
+export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: SettingsTabProps) {
   const { t, language, setLanguage } = useLanguage();
   const { isLightTheme, setLightTheme } = useTheme();
 
@@ -64,7 +65,15 @@ export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabPro
       setEmail(profile.emailAddress);
       setIsCommunityEnabled(localStorage.getItem('dairy_community_enabled') === 'true');
     }).catch(console.error);
-  }, []);
+  }, [viewAsUserId]);
+
+  const handleSaveAppearance = async () => {
+    if (!hasPageAction('Settings', 'edit')) return alert('Permission denied');
+    if (!window.confirm(t('Are you sure you want to save appearance settings?'))) return;
+
+    Repository.saveProfile({ isLightTheme, language });
+    onSuccessToast();
+  };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,6 +187,7 @@ export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabPro
   if (showInventory) {
     return (
       <InventoryTab 
+        viewAsUserId={viewAsUserId}
         onBack={() => {
           setShowInventory(false);
           onSuccessToast();
@@ -512,6 +522,11 @@ export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabPro
                 />
               </div>
             </div>
+
+            <button type="button" className="btn btn-primary" onClick={handleSaveAppearance} style={{ width: '100%', marginTop: '12px' }}>
+              <Save size={16} />
+              {t('Save Appearance')}
+            </button>
           </div>
 
           {/* Local Backup Card */}

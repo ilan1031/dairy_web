@@ -71,7 +71,6 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
 
   const setLightTheme = (light: boolean) => {
     setIsLightThemeState(light);
-    Repository.saveProfile({ isLightTheme: light });
   };
 
   const toggleTheme = () => {
@@ -80,7 +79,6 @@ export function AppSettingsProvider({ children }: { children: React.ReactNode })
 
   const setLanguage = (lang: string) => {
     setLanguageState(lang);
-    Repository.saveProfile({ language: lang });
   };
 
   const t = (key: string, ...args: any[]) => {

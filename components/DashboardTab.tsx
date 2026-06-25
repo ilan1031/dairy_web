@@ -20,17 +20,18 @@ import {
   Calendar,
   BarChart3
 } from 'lucide-react';
-import { hasPageAction, isSuperAdminSession, getCurrentUser, canAccessField } from '@/lib/permissions';
-import RepositoryLib from '@/lib/repository';
+import { hasPageAction, canAccessField } from '@/lib/permissions';
 
 
 interface DashboardTabProps {
+  viewAsUserId?: string;
   onNavigateToTab: (index: number) => void;
   onSelectCustomer: (customer: Customer) => void;
   onSettlePayment: (sale: Sale, paymentType: string) => void;
 }
 
 export default function DashboardTab({ 
+  viewAsUserId,
   onNavigateToTab, 
   onSelectCustomer,
   onSettlePayment 
@@ -45,8 +46,6 @@ export default function DashboardTab({
   const [todayRevenue, setTodayRevenue] = useState(0);
   const [todayLiters, setTodayLiters] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [users, setUsers] = useState<any[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [oldPendingInvoices, setOldPendingInvoices] = useState<Sale[]>([]);
 
   const loadData = async () => {
@@ -97,16 +96,9 @@ export default function DashboardTab({
 
   useEffect(() => {
     loadData();
-    // Refresh every 5s for rapid pulse
     const interval = setInterval(loadData, 5000);
     return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    setUsers(RepositoryLib.getUsers());
-    const cur = getCurrentUser();
-    setSelectedUserId(cur?.id || null);
-  }, []);
+  }, [viewAsUserId]);
 
   const handleSync = async () => {
     setIsSyncing(true);
@@ -157,12 +149,6 @@ export default function DashboardTab({
     language === 'ta' ? 'ta-IN' : 'en-US',
     { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' }
   );
-
-  const canSwitchUser =
-    isSuperAdminSession() ||
-    Boolean(getCurrentUser()?.permissions?.canViewOthers) ||
-    getCurrentUser()?.permissions?.dataAccessScope?.mode === 'all' ||
-    getCurrentUser()?.permissions?.dataAccessScope?.mode === 'shared';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>

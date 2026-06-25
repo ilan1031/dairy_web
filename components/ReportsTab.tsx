@@ -7,7 +7,7 @@ import Repository, { Sale } from '@/lib/repository';
 import { hasPageAction } from '@/lib/permissions';
 import { BarChart3, PieChart, TrendingUp, AlertCircle, Droplet, DollarSign, Shield } from 'lucide-react';
 
-export default function ReportsTab() {
+export default function ReportsTab({ viewAsUserId }: { viewAsUserId?: string }) {
   const { t } = useLanguage();
   const [sales, setSales] = useState<Sale[]>([]);
   const [intervalFilter, setIntervalFilter] = useState('Today');
@@ -16,7 +16,7 @@ export default function ReportsTab() {
   useEffect(() => {
     Repository.getAllSales().then(setSales).catch(console.error);
     setIsCommunityActive(localStorage.getItem('dairy_community_enabled') === 'true');
-  }, []);
+  }, [viewAsUserId]);
 
   const filtered = useMemo(() => {
     const now = Date.now();

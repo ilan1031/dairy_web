@@ -17,7 +17,7 @@ import {
   getIpLimitApi,
   updateIpLimitApi,
 } from '@/lib/dataApi';
-import { PlusCircle, Users, ArrowLeft, Trash2, Loader2, Shield, Key, Clock } from 'lucide-react';
+import { PlusCircle, Users, ArrowLeft, Trash2, Loader2, Shield, Key, Clock, Save } from 'lucide-react';
 
 interface AdminSettingsProps {
   onBack: () => void;
@@ -381,6 +381,8 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
   const [newPassword, setNewPassword] = useState('');
   const [resetPassword, setResetPassword] = useState('');
   const [selected, setSelected] = useState<UserModel | null>(null);
+  const [draftUser, setDraftUser] = useState<UserModel | null>(null);
+  const [userDirty, setUserDirty] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -428,9 +430,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
         setSubscriptionDays(String(tokenConfig.subscriptionExpirySeconds / (24 * 3600)));
       }
       setSelectedIds((prev) => prev.filter((id) => mapped.some((u) => u.id === id)));
-      if (selected) {
-        setSelected(mapped.find((u) => u.id === selected.id) || null);
-      }
+      setSelected((prev) => (prev ? mapped.find((u) => u.id === prev.id) || null : null));
     } catch (err) {
       console.error('[AdminSettings] Failed to load:', err);
       setUsers(Repository.getUsers());
@@ -438,7 +438,27 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
     } finally {
       setLoading(false);
     }
-  }, [selected]);
+  }, []);
+
+  useEffect(() => {
+    setDraftUser(selected ? JSON.parse(JSON.stringify(selected)) as UserModel : null);
+    setUserDirty(false);
+    setResetPassword('');
+  }, [selected?.id]);
+
+  const patchDraft = (updater: (user: UserModel) => UserModel) => {
+    setDraftUser((prev) => {
+      if (!prev) return prev;
+      return updater(prev);
+    });
+    setUserDirty(true);
+  };
+
+  const handleSelectUser = (u: UserModel) => {
+    if (userDirty && !confirm('You have unsaved changes. Discard them?')) return;
+    setSelected(u);
+    setSelectedIds([u.id]);
+  };
 
   const handleSaveTokenConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -473,13 +493,17 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  const persistUser = async (user: UserModel, password?: string) => {
+  const saveUser = async (password?: string) => {
+    if (!draftUser) return;
+    if (!password && !userDirty) return;
+    if (!password && !confirm('Save changes to this user?')) return;
     setSaving(true);
     try {
-      const payload: Record<string, unknown> = { ...user };
+      const payload: Record<string, unknown> = { ...draftUser };
       if (password) payload.password = password;
       const saved = toUserModel(await updateUserApi(payload));
       setSelected(saved);
+      setUserDirty(false);
       await refresh();
       onSuccessToast?.('User saved successfully.');
     } catch (err) {
@@ -540,58 +564,66 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
   };
 
   const togglePageAction = (pageKey: string, action: PermissionAction) => {
-    if (!selected || !selected.active) return;
-    const perms = { ...selected.permissions };
-    const pagePerms = { ...(perms.pagePermissions || {}) };
-    const current = new Set(pagePerms[pageKey] || []);
-    if (current.has(action)) current.delete(action);
-    else current.add(action);
-    pagePerms[pageKey] = Array.from(current);
-    const allowed = new Set(perms.allowedPages || []);
-    if (current.size > 0) allowed.add(pageKey);
-    else allowed.delete(pageKey);
-    persistUser({
-      ...selected,
-      permissions: { ...perms, pagePermissions: pagePerms, allowedPages: Array.from(allowed) },
+    if (!draftUser || !draftUser.active) return;
+    patchDraft((user) => {
+      const perms = { ...user.permissions };
+      const pagePerms = { ...(perms.pagePermissions || {}) };
+      const current = new Set(pagePerms[pageKey] || []);
+      if (current.has(action)) current.delete(action);
+      else current.add(action);
+      pagePerms[pageKey] = Array.from(current);
+      const allowed = new Set(perms.allowedPages || []);
+      if (current.size > 0) allowed.add(pageKey);
+      else allowed.delete(pageKey);
+      return {
+        ...user,
+        permissions: { ...perms, pagePermissions: pagePerms, allowedPages: Array.from(allowed) },
+      };
     });
   };
 
   const toggleField = (pageKey: string, fieldKey: string, enabled: boolean) => {
-    if (!selected || !selected.active) return;
-    const perms = { ...selected.permissions };
-    const fieldPerms = { ...(perms.fieldPermissions || {}) };
-    const pageFields = { ...(fieldPerms[pageKey] || {}) };
-    pageFields[fieldKey] = enabled;
-    fieldPerms[pageKey] = pageFields;
-    persistUser({ ...selected, permissions: { ...perms, fieldPermissions: fieldPerms } });
+    if (!draftUser || !draftUser.active) return;
+    patchDraft((user) => {
+      const perms = { ...user.permissions };
+      const fieldPerms = { ...(perms.fieldPermissions || {}) };
+      const pageFields = { ...(fieldPerms[pageKey] || {}) };
+      pageFields[fieldKey] = enabled;
+      fieldPerms[pageKey] = pageFields;
+      return { ...user, permissions: { ...perms, fieldPermissions: fieldPerms } };
+    });
   };
 
   const updateDataScope = (mode: 'own' | 'all' | 'shared') => {
-    if (!selected || !isSuperAdminSession()) return;
-    const perms = { ...selected.permissions };
-    persistUser({
-      ...selected,
-      permissions: {
-        ...perms,
-        dataAccessScope: { mode, sharedUserIds: perms.dataAccessScope?.sharedUserIds || [] },
-        canViewOthers: mode === 'all',
-      },
+    if (!draftUser || !isSuperAdminSession()) return;
+    patchDraft((user) => {
+      const perms = { ...user.permissions };
+      return {
+        ...user,
+        permissions: {
+          ...perms,
+          dataAccessScope: { mode, sharedUserIds: perms.dataAccessScope?.sharedUserIds || [] },
+          canViewOthers: mode === 'all',
+        },
+      };
     });
   };
 
   const toggleSharedUser = (userId: string, enabled: boolean) => {
-    if (!selected || !isSuperAdminSession()) return;
-    const perms = { ...selected.permissions };
-    const scope = perms.dataAccessScope || { mode: 'shared', sharedUserIds: [] };
-    const ids = new Set(scope.sharedUserIds || []);
-    if (enabled) ids.add(userId);
-    else ids.delete(userId);
-    persistUser({
-      ...selected,
-      permissions: {
-        ...perms,
-        dataAccessScope: { mode: 'shared', sharedUserIds: Array.from(ids) },
-      },
+    if (!draftUser || !isSuperAdminSession()) return;
+    patchDraft((user) => {
+      const perms = { ...user.permissions };
+      const scope = perms.dataAccessScope || { mode: 'shared', sharedUserIds: [] };
+      const ids = new Set(scope.sharedUserIds || []);
+      if (enabled) ids.add(userId);
+      else ids.delete(userId);
+      return {
+        ...user,
+        permissions: {
+          ...perms,
+          dataAccessScope: { mode: 'shared', sharedUserIds: Array.from(ids) },
+        },
+      };
     });
   };
 
@@ -622,35 +654,41 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
   };
 
   const toggleSharedRight = (key: 'sales' | 'inventory' | 'customers', enabled: boolean) => {
-    if (!selected || !isSuperAdminSession()) return;
-    const perms = { ...selected.permissions };
-    const scope = perms.dataAccessScope || { mode: 'shared', sharedUserIds: [], sharedRights: { sales: true, inventory: true, customers: true } };
-    const rights = { sales: true, inventory: true, customers: true, ...(scope.sharedRights || {}) };
-    rights[key] = enabled;
-    persistUser({
-      ...selected,
-      permissions: { ...perms, dataAccessScope: { ...scope, mode: 'shared', sharedRights: rights } },
+    if (!draftUser || !isSuperAdminSession()) return;
+    patchDraft((user) => {
+      const perms = { ...user.permissions };
+      const scope = perms.dataAccessScope || { mode: 'shared', sharedUserIds: [], sharedRights: { sales: true, inventory: true, customers: true } };
+      const rights = { sales: true, inventory: true, customers: true, ...(scope.sharedRights || {}) };
+      rights[key] = enabled;
+      return {
+        ...user,
+        permissions: { ...perms, dataAccessScope: { ...scope, mode: 'shared', sharedRights: rights } },
+      };
     });
   };
 
   const updateLimit = (key: keyof ResourceLimits, value: string) => {
-    if (!selected || !isSuperAdminSession()) return;
-    const perms = { ...selected.permissions };
-    const limits = { ...(perms.resourceLimits || {}) };
-    const num = value.trim() === '' ? null : Number(value);
-    (limits as Record<string, unknown>)[key] = num;
-    persistUser({ ...selected, permissions: { ...perms, resourceLimits: limits } });
+    if (!draftUser || !isSuperAdminSession()) return;
+    patchDraft((user) => {
+      const perms = { ...user.permissions };
+      const limits = { ...(perms.resourceLimits || {}) };
+      const num = value.trim() === '' ? null : Number(value);
+      (limits as Record<string, unknown>)[key] = num;
+      return { ...user, permissions: { ...perms, resourceLimits: limits } };
+    });
   };
 
   const toggleMilkType = (milkType: string, enabled: boolean) => {
-    if (!selected || !isSuperAdminSession()) return;
-    const perms = { ...selected.permissions };
-    const limits = { ...(perms.resourceLimits || {}) };
-    const current = new Set(limits.allowedMilkTypes || []);
-    if (enabled) current.add(milkType);
-    else current.delete(milkType);
-    limits.allowedMilkTypes = current.size ? Array.from(current) : null;
-    persistUser({ ...selected, permissions: { ...perms, resourceLimits: limits } });
+    if (!draftUser || !isSuperAdminSession()) return;
+    patchDraft((user) => {
+      const perms = { ...user.permissions };
+      const limits = { ...(perms.resourceLimits || {}) };
+      const current = new Set(limits.allowedMilkTypes || []);
+      if (enabled) current.add(milkType);
+      else current.delete(milkType);
+      limits.allowedMilkTypes = current.size ? Array.from(current) : null;
+      return { ...user, permissions: { ...perms, resourceLimits: limits } };
+    });
   };
 
   const pages = catalog?.pages || [];
@@ -883,10 +921,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                   key={u.id}
                   className="list-item"
                   style={{ cursor: 'pointer', borderColor: selected?.id === u.id ? 'var(--primary-milk)' : undefined, opacity: u.active ? 1 : 0.65, display: 'flex', gap: 10, alignItems: 'center' }}
-                  onClick={() => {
-                    setSelected(u);
-                    setSelectedIds([u.id]);
-                  }}
+                  onClick={() => handleSelectUser(u)}
                 >
                   <input
                     type="checkbox"
@@ -900,6 +935,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                         else next.delete(u.id);
                         const arr = Array.from(next);
                         if (arr.length === 1) {
+                          if (userDirty && !confirm('You have unsaved changes. Discard them?')) return prev;
                           setSelected(users.find((x) => x.id === arr[0]) || null);
                         } else {
                           setSelected(null);
@@ -938,18 +974,23 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                 onSuccessToast={onSuccessToast}
                 refresh={refresh}
               />
-            ) : selected ? (
+            ) : selected && draftUser ? (
               <div>
-                <h4 style={{ marginTop: 0 }}>Edit — {selected.name}</h4>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <h4 style={{ margin: 0 }}>Edit — {draftUser.name}{userDirty ? ' *' : ''}</h4>
+                  <button className="btn btn-primary" disabled={!userDirty || saving} onClick={() => saveUser()}>
+                    <Save size={14} /> Save User
+                  </button>
+                </div>
 
-                <Switch label="Account Active" checked={selected.active} onChange={(active) => persistUser({ ...selected, active, subscription: active ? selected.subscription : null })} />
+                <Switch label="Account Active" checked={draftUser.active} onChange={(active) => patchDraft((user) => ({ ...user, active, subscription: active ? user.subscription : null }))} />
 
                 <label className="form-label" style={{ display: 'block', marginTop: 12 }}>User Profile</label>
                 <div style={{ display: 'grid', gap: 8 }}>
-                  <input className="form-input" placeholder="Display name" value={selected.profile?.displayName || ''} onChange={(e) => persistUser({ ...selected, profile: { ...selected.profile, displayName: e.target.value } })} />
-                  <input className="form-input" placeholder="Phone" value={selected.profile?.phone || ''} onChange={(e) => persistUser({ ...selected, profile: { ...selected.profile, phone: e.target.value } })} />
-                  <input className="form-input" placeholder="Department" value={selected.profile?.department || ''} onChange={(e) => persistUser({ ...selected, profile: { ...selected.profile, department: e.target.value } })} />
-                  <textarea className="form-input" placeholder="Notes" rows={2} value={selected.profile?.notes || ''} onChange={(e) => persistUser({ ...selected, profile: { ...selected.profile, notes: e.target.value } })} />
+                  <input className="form-input" placeholder="Display name" value={draftUser.profile?.displayName || ''} onChange={(e) => patchDraft((user) => ({ ...user, profile: { ...user.profile, displayName: e.target.value } }))} />
+                  <input className="form-input" placeholder="Phone" value={draftUser.profile?.phone || ''} onChange={(e) => patchDraft((user) => ({ ...user, profile: { ...user.profile, phone: e.target.value } }))} />
+                  <input className="form-input" placeholder="Department" value={draftUser.profile?.department || ''} onChange={(e) => patchDraft((user) => ({ ...user, profile: { ...user.profile, department: e.target.value } }))} />
+                  <textarea className="form-input" placeholder="Notes" rows={2} value={draftUser.profile?.notes || ''} onChange={(e) => patchDraft((user) => ({ ...user, profile: { ...user.profile, notes: e.target.value } }))} />
                 </div>
 
                 {isSuperAdminSession() && (
@@ -957,19 +998,19 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                     <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Key size={14} /> Reset Password</label>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input className="form-input" type="password" placeholder="New password" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} />
-                      <button className="btn btn-outline" disabled={!resetPassword || resetPassword.length < 6 || saving} onClick={() => { persistUser(selected, resetPassword); setResetPassword(''); }}>Set</button>
+                      <button className="btn btn-outline" disabled={!resetPassword || resetPassword.length < 6 || saving} onClick={() => { saveUser(resetPassword); setResetPassword(''); }}>Set</button>
                     </div>
                   </div>
                 )}
 
-                {selected.active && isSuperAdminSession() && (
+                {draftUser.active && isSuperAdminSession() && (
                   <div style={{ marginTop: 16, border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
                     <label className="form-label" style={{ marginTop: 0 }}>Subscription &amp; Due Date</label>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                       <select
                         className="form-input"
-                        value={selected.subscription?.plan || 'monthly'}
-                        onChange={(e) => persistUser({ ...selected, subscription: { ...selected.subscription, plan: e.target.value, expiresAt: selected.subscription?.expiresAt } })}
+                        value={draftUser.subscription?.plan || 'monthly'}
+                        onChange={(e) => patchDraft((user) => ({ ...user, subscription: { ...user.subscription, plan: e.target.value, expiresAt: user.subscription?.expiresAt } }))}
                       >
                         <option value="free">Free</option>
                         <option value="monthly">Monthly</option>
@@ -979,39 +1020,45 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                       <input
                         type="date"
                         className="form-input"
-                        value={selected.subscription?.expiresAt ? new Date(selected.subscription.expiresAt).toISOString().slice(0, 10) : ''}
+                        value={draftUser.subscription?.expiresAt ? new Date(draftUser.subscription.expiresAt).toISOString().slice(0, 10) : ''}
                         onChange={(e) => {
                           const expiresAt = e.target.value ? new Date(e.target.value).getTime() : undefined;
-                          persistUser({ ...selected, subscription: { plan: selected.subscription?.plan || 'monthly', ...selected.subscription, expiresAt, dueDate: expiresAt } });
+                          patchDraft((user) => ({
+                            ...user,
+                            subscription: { plan: user.subscription?.plan || 'monthly', ...user.subscription, expiresAt, dueDate: expiresAt },
+                          }));
                         }}
                       />
                     </div>
                     <Switch
                       label="Allow app access (renew permission)"
-                      checked={Boolean(selected.permissions.canUseSubscription)}
-                      onChange={() => {
-                        const perms = { ...selected.permissions, canUseSubscription: !selected.permissions.canUseSubscription };
-                        persistUser({ ...selected, permissions: perms });
-                      }}
+                      checked={Boolean(draftUser.permissions.canUseSubscription)}
+                      onChange={() => patchDraft((user) => ({
+                        ...user,
+                        permissions: { ...user.permissions, canUseSubscription: !user.permissions.canUseSubscription },
+                      }))}
                     />
                     <textarea
                       className="form-input"
                       rows={2}
                       placeholder="Custom Pay Now message for this user"
                       style={{ marginTop: 8, width: '100%' }}
-                      value={selected.subscription?.paymentMessage || ''}
-                      onChange={(e) => persistUser({ ...selected, subscription: { plan: selected.subscription?.plan || 'monthly', ...selected.subscription, paymentMessage: e.target.value } })}
+                      value={draftUser.subscription?.paymentMessage || ''}
+                      onChange={(e) => patchDraft((user) => ({
+                        ...user,
+                        subscription: { plan: user.subscription?.plan || 'monthly', ...user.subscription, paymentMessage: e.target.value },
+                      }))}
                     />
                   </div>
                 )}
 
-                {selected.active && isSuperAdminSession() && (
+                {draftUser.active && isSuperAdminSession() && (
                   <div style={{ marginTop: 16, border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
                     <label className="form-label" style={{ marginTop: 0 }}>Data Limits (built-in control)</label>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <input className="form-input" type="number" min={0} placeholder="Max customers (empty=unlimited)" value={selected.permissions.resourceLimits?.maxCustomers ?? ''} onChange={(e) => updateLimit('maxCustomers', e.target.value)} />
-                      <input className="form-input" type="number" min={0} placeholder="Max sales (empty=unlimited)" value={selected.permissions.resourceLimits?.maxSales ?? ''} onChange={(e) => updateLimit('maxSales', e.target.value)} />
-                      <input className="form-input" type="number" min={0} placeholder="Max inventory entries" value={selected.permissions.resourceLimits?.maxInventory ?? ''} onChange={(e) => updateLimit('maxInventory', e.target.value)} />
+                      <input className="form-input" type="number" min={0} placeholder="Max customers (empty=unlimited)" value={draftUser.permissions.resourceLimits?.maxCustomers ?? ''} onChange={(e) => updateLimit('maxCustomers', e.target.value)} />
+                      <input className="form-input" type="number" min={0} placeholder="Max sales (empty=unlimited)" value={draftUser.permissions.resourceLimits?.maxSales ?? ''} onChange={(e) => updateLimit('maxSales', e.target.value)} />
+                      <input className="form-input" type="number" min={0} placeholder="Max inventory entries" value={draftUser.permissions.resourceLimits?.maxInventory ?? ''} onChange={(e) => updateLimit('maxInventory', e.target.value)} />
                     </div>
                     <label className="form-label" style={{ display: 'block', marginTop: 10 }}>Allowed milk categories</label>
                     <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0 0 6px' }}>Leave all unchecked for unlimited types</p>
@@ -1019,49 +1066,49 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                       <Switch
                         key={m}
                         label={m}
-                        checked={!selected.permissions.resourceLimits?.allowedMilkTypes?.length || selected.permissions.resourceLimits.allowedMilkTypes.includes(m)}
+                        checked={!draftUser.permissions.resourceLimits?.allowedMilkTypes?.length || draftUser.permissions.resourceLimits.allowedMilkTypes.includes(m)}
                         onChange={(on) => toggleMilkType(m, on)}
                       />
                     ))}
                   </div>
                 )}
 
-                {selected.active && isSuperAdminSession() && (
+                {draftUser.active && isSuperAdminSession() && (
                   <>
                     <label className="form-label" style={{ display: 'block', marginTop: 16 }}>Share User Data</label>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 0 }}>Select users whose sales, inventory &amp; customer data this user can view.</p>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                       {(['own', 'shared', 'all'] as const).map((mode) => (
-                        <button key={mode} type="button" className={`btn ${selected.permissions.dataAccessScope?.mode === mode ? 'btn-primary' : 'btn-outline'}`} onClick={() => updateDataScope(mode)}>
+                        <button key={mode} type="button" className={`btn ${draftUser.permissions.dataAccessScope?.mode === mode ? 'btn-primary' : 'btn-outline'}`} onClick={() => updateDataScope(mode)}>
                           {mode === 'own' ? 'Own only' : mode === 'shared' ? 'Selected users' : 'All users'}
                         </button>
                       ))}
                     </div>
-                    {(selected.permissions.dataAccessScope?.mode === 'shared' || selected.permissions.dataAccessScope?.mode === 'all') && (
+                    {(draftUser.permissions.dataAccessScope?.mode === 'shared' || draftUser.permissions.dataAccessScope?.mode === 'all') && (
                       <>
                         <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, marginBottom: 8 }}>
                           <div style={{ fontWeight: 700, fontSize: '0.82rem', marginBottom: 6 }}>Share with users</div>
-                          {users.filter((u) => u.id !== selected.id).map((u) => (
+                          {users.filter((u) => u.id !== draftUser.id).map((u) => (
                             <Switch
                               key={u.id}
                               label={`${u.name} (${u.email})`}
-                              checked={(selected.permissions.dataAccessScope?.sharedUserIds || []).includes(u.id)}
+                              checked={(draftUser.permissions.dataAccessScope?.sharedUserIds || []).includes(u.id)}
                               onChange={(on) => toggleSharedUser(u.id, on)}
                             />
                           ))}
                         </div>
                         <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 8 }}>
                           <div style={{ fontWeight: 700, fontSize: '0.82rem', marginBottom: 6 }}>Shared data types</div>
-                          <Switch label="Sales data" checked={selected.permissions.dataAccessScope?.sharedRights?.sales !== false} onChange={(on) => toggleSharedRight('sales', on)} />
-                          <Switch label="Inventory data" checked={selected.permissions.dataAccessScope?.sharedRights?.inventory !== false} onChange={(on) => toggleSharedRight('inventory', on)} />
-                          <Switch label="Customers (create/view)" checked={selected.permissions.dataAccessScope?.sharedRights?.customers !== false} onChange={(on) => toggleSharedRight('customers', on)} />
+                          <Switch label="Sales data" checked={draftUser.permissions.dataAccessScope?.sharedRights?.sales !== false} onChange={(on) => toggleSharedRight('sales', on)} />
+                          <Switch label="Inventory data" checked={draftUser.permissions.dataAccessScope?.sharedRights?.inventory !== false} onChange={(on) => toggleSharedRight('inventory', on)} />
+                          <Switch label="Customers (create/view)" checked={draftUser.permissions.dataAccessScope?.sharedRights?.customers !== false} onChange={(on) => toggleSharedRight('customers', on)} />
                         </div>
                       </>
                     )}
                   </>
                 )}
 
-                {selected.active && (
+                {draftUser.active && (
                   <>
                     <label className="form-label" style={{ display: 'block', marginTop: 16 }}>Page Permissions (CRUD matrix)</label>
                     {pages.map((page) => (
@@ -1069,7 +1116,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                         <div style={{ fontWeight: 700, marginBottom: 6 }}>{page.label}</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                           {page.actions.map((action) => {
-                            const checked = (selected.permissions.pagePermissions?.[page.key] || []).includes(action);
+                            const checked = (draftUser.permissions.pagePermissions?.[page.key] || []).includes(action);
                             return (
                               <label key={action} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.82rem' }}>
                                 <input type="checkbox" checked={checked} onChange={() => togglePageAction(page.key, action)} />
@@ -1085,7 +1132,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                               <Switch
                                 key={field.key}
                                 label={field.label}
-                                checked={selected.permissions.fieldPermissions?.[page.key]?.[field.key] !== false}
+                                checked={draftUser.permissions.fieldPermissions?.[page.key]?.[field.key] !== false}
                                 onChange={(on) => toggleField(page.key, field.key, on)}
                               />
                             ))}
@@ -1095,6 +1142,10 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
                     ))}
                   </>
                 )}
+
+                <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} disabled={!userDirty || saving} onClick={() => saveUser()}>
+                  <Save size={16} /> Save User
+                </button>
               </div>
             ) : (
               <div style={{ color: 'var(--text-secondary)' }}>Select a user to manage profile, password, permissions, and data sharing.</div>

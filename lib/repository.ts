@@ -172,6 +172,11 @@ class Repository {
   private static _initialized = false;
   private static _initPromise: Promise<void> | null = null;
   private static _sessionSuperAdmin = false;
+  private static _viewAsUserId: string | null = null;
+
+  static getViewAsUserId(): string | null {
+    return this._viewAsUserId;
+  }
 
   static isSessionSuperAdmin(): boolean {
     return this._sessionSuperAdmin;
@@ -261,15 +266,16 @@ class Repository {
     this._initialized = true;
   }
 
-  static async changeActiveUser(selectedUserId: string | null): Promise<void> {
+  static async changeActiveUser(viewAsUserId: string | null): Promise<void> {
+    this._viewAsUserId = viewAsUserId;
     this.clearSession();
-    await this.initialize(selectedUserId);
+    await this.initialize(viewAsUserId ?? undefined);
   }
 
   static async refreshFromServer(): Promise<void> {
     this._initialized = false;
     this._initPromise = null;
-    await this.initialize();
+    await this.initialize(this._viewAsUserId ?? undefined);
   }
 
   static clearSession(): void {
