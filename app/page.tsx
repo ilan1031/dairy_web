@@ -363,7 +363,7 @@ function HomeContent() {
                   className="form-input" 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="seller@ganeshdairy.com"
+                  placeholder="seller@abielan.in"
                   style={{ padding: '10px 14px', fontSize: '0.92rem' }}
                   required
                 />
