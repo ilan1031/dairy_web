@@ -81,8 +81,8 @@ function HomeContent() {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [pendingProfileCustomer, setPendingProfileCustomer] = useState<Customer | null>(null);
 
-  // Impersonation / View As User State
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  // Impersonation / View As User State ('all' = aggregated data for all users)
+  const [selectedUserId, setSelectedUserId] = useState<string>('all');
   const [users, setUsers] = useState<UserModel[]>([]);
   const [isReady, setIsReady] = useState(false);
 
@@ -256,11 +256,12 @@ function HomeContent() {
       currentUser?.permissions?.dataAccessScope?.mode === 'shared'
     );
 
-  const handleUserChange = async (userId: string | null) => {
-    setSelectedUserId(userId);
+  const handleUserChange = async (userId: string) => {
+    const viewAs = userId || 'all';
+    setSelectedUserId(viewAs);
     setIsReady(false);
     try {
-      await Repository.changeActiveUser(userId);
+      await Repository.changeActiveUser(viewAs === 'all' ? 'all' : viewAs);
       setUsers(Repository.getUsers());
     } catch (err) {
       console.error(err);
@@ -545,12 +546,12 @@ function HomeContent() {
                 {t('View as')}
               </label>
               <select
-                value={selectedUserId || ''}
-                onChange={(e) => handleUserChange(e.target.value || null)}
+                value={selectedUserId}
+                onChange={(e) => handleUserChange(e.target.value)}
                 className="form-input view-as-select"
                 style={{ width: '150px', height: '32px', padding: '2px 6px', fontSize: '0.8rem', borderRadius: '6px', cursor: 'pointer' }}
               >
-                <option value="">{t('All')}</option>
+                <option value="all">{t('All')}</option>
                 {users.filter(u => u.role !== 'superadmin').map(u => (
                   <option key={u.id} value={u.id}>{u.name}</option>
                 ))}
@@ -593,7 +594,8 @@ function HomeContent() {
       <main style={{ padding: '8px 0 40px 0', flex: 1 }}>
         {activeTab === 0 && canAccessPage('Dashboard') && (
           <DashboardTab 
-            key={selectedUserId || 'all'}
+            key={selectedUserId}
+            viewAsUserId={selectedUserId}
             onNavigateToTab={(idx) => setActiveTab(idx)}
             onSelectCustomer={(c) => {
               setPendingProfileCustomer(c);
@@ -604,7 +606,8 @@ function HomeContent() {
         )}
         {activeTab === 1 && canAccessPage('Sales') && (
           <SalesTab 
-            key={selectedUserId || 'all'} 
+            key={selectedUserId}
+            viewAsUserId={selectedUserId}
             onSuccessToast={triggerToast} 
             onSaleCreated={(sale) => {
               setActiveTab(3);
@@ -614,15 +617,22 @@ function HomeContent() {
         )}
         {activeTab === 2 && canAccessPage('Profiles') && (
           <ProfilesTab
-            key={selectedUserId || 'all'}
+            key={selectedUserId}
+            viewAsUserId={selectedUserId}
             onSuccessToast={triggerToast}
             initialCustomer={pendingProfileCustomer}
             onInitialCustomerConsumed={() => setPendingProfileCustomer(null)}
           />
         )}
-        {activeTab === 3 && canAccessPage('Bills') && <BillsTab key={selectedUserId || 'all'} onInvoiceClick={(sale) => setSelectedSale(sale)} />}
-        {activeTab === 4 && canAccessPage('Reports') && <ReportsTab key={selectedUserId || 'all'} />}
-        {activeTab === 5 && canAccessPage('Settings') && <SettingsTab key={selectedUserId || 'all'} onSuccessToast={triggerToast} onLogout={handleLogout} />}
+        {activeTab === 3 && canAccessPage('Bills') && (
+          <BillsTab key={selectedUserId} viewAsUserId={selectedUserId} onInvoiceClick={(sale) => setSelectedSale(sale)} />
+        )}
+        {activeTab === 4 && canAccessPage('Reports') && (
+          <ReportsTab key={selectedUserId} viewAsUserId={selectedUserId} />
+        )}
+        {activeTab === 5 && canAccessPage('Settings') && (
+          <SettingsTab key={selectedUserId} viewAsUserId={selectedUserId} onSuccessToast={triggerToast} onLogout={handleLogout} />
+        )}
       </main>
 
       {/* Footer copyright */}

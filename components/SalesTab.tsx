@@ -33,11 +33,12 @@ import {
 } from 'lucide-react';
 
 interface SalesTabProps {
+  viewAsUserId?: string;
   onSuccessToast: (message?: string, type?: 'success' | 'error' | 'info') => void;
   onSaleCreated?: (sale: Sale) => void;
 }
 
-export default function SalesTab({ onSuccessToast, onSaleCreated }: SalesTabProps) {
+export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }: SalesTabProps) {
   const { t } = useLanguage();
 
   // Procurement database states
@@ -115,7 +116,7 @@ export default function SalesTab({ onSuccessToast, onSaleCreated }: SalesTabProp
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [viewAsUserId]);
 
   // Compute stock levels left for today (Android alignment)
   const todayStart = new Date();
@@ -207,6 +208,11 @@ export default function SalesTab({ onSuccessToast, onSaleCreated }: SalesTabProp
     const selectedMethod = billingConfig?.paymentMethods.find(m => m.code === paymentTypeChoice);
     const paymentStatus = selectedMethod?.marksPending ? 'PENDING' : 'PAID';
     const resolvedPaymentType = selectedMethod?.marksPending ? 'NONE' : paymentTypeChoice;
+
+    const isNewCustomer = !customers.some((c) => c.id === selectedCustomer.id);
+    if (isNewCustomer) {
+      await Repository.saveCustomer(selectedCustomer);
+    }
 
     const newSale: Sale = {
       id: Math.random().toString(36).substr(2, 9),
@@ -403,9 +409,8 @@ export default function SalesTab({ onSuccessToast, onSaleCreated }: SalesTabProp
                     } else {
                       const newId = Math.random().toString(36).substr(2, 9);
                       const newC: Customer = { id: newId, name: nextAutoCustomerName, phone: '', qrPreference: 'UPI', updatedAt: Date.now() };
-                      Repository.saveCustomer(newC);
                       setSelectedCustomer(newC);
-                      loadData();
+                      setInputQuery(newC.name);
                     }
                   }}
                   style={{ padding: '4px 10px', fontSize: '0.78rem', borderRadius: '16px', color: 'var(--primary-gold)', borderColor: 'rgba(255,160,0,0.3)', backgroundColor: 'rgba(255,160,0,0.05)' }}

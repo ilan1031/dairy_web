@@ -9,6 +9,7 @@ import { Search, Save, Trash2, ArrowLeft, Check, AlertCircle, Phone, MapPin, Fil
 import InvoiceDetailDialog from './InvoiceDetailDialog';
 
 interface ProfilesTabProps {
+  viewAsUserId?: string;
   onSuccessToast: () => void;
   initialCustomer?: Customer | null;
   onInitialCustomerConsumed?: () => void;
@@ -46,6 +47,7 @@ function applyHistoryDateFilter(
 }
 
 export default function ProfilesTab({
+  viewAsUserId,
   onSuccessToast,
   initialCustomer,
   onInitialCustomerConsumed
@@ -102,7 +104,8 @@ export default function ProfilesTab({
 
   useEffect(() => {
     loadData();
-  }, []);
+    setSelectedCust(null);
+  }, [viewAsUserId]);
 
   // Open profile from dashboard history click
   useEffect(() => {

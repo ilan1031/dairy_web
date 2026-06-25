@@ -8,10 +8,11 @@ import { hasPageAction } from '@/lib/permissions';
 import { ArrowLeft, Save, PlusCircle, Calendar, LineChart, X } from 'lucide-react';
 
 interface InventoryTabProps {
+  viewAsUserId?: string;
   onBack: () => void;
 }
 
-export default function InventoryTab({ onBack }: InventoryTabProps) {
+export default function InventoryTab({ viewAsUserId, onBack }: InventoryTabProps) {
   const { t } = useLanguage();
 
   const [prices, setPrices] = useState<PriceConfig[]>([]);
@@ -78,7 +79,7 @@ export default function InventoryTab({ onBack }: InventoryTabProps) {
 
   useEffect(() => {
     loadData();
-  }, [dateStr, selectedEditType]);
+  }, [dateStr, selectedEditType, viewAsUserId]);
 
   if (!hasPageAction('Inventory', 'view')) {
     return (

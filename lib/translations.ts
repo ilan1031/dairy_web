@@ -188,6 +188,8 @@ export const tamilTranslations: Record<string, string> = {
   "Close": "மூடு",
   "Cancel": "ரத்து செய்",
   "Save": "சேமி",
+  "Save Appearance": "தோற்றத்தைச் சேமி",
+  "Are you sure you want to save appearance settings?": "தோற்ற அமைப்புகளைச் சேமிக்க விரும்புகிறீர்களா?",
   "Registered buyers list: %s": "பதிவுசெய்யப்பட்ட வாங்குபவர்கள்: %s",
   
   // System Branding & User Switching

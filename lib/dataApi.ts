@@ -28,7 +28,11 @@ export interface BootstrapPayload {
 }
 
 export async function bootstrap(selectedUserId?: string | null): Promise<BootstrapPayload> {
-  const res = await apiPost('/api/data/bootstrap', { selectedUserId });
+  const body: Record<string, unknown> = {};
+  if (selectedUserId === 'all' || selectedUserId) {
+    body.selectedUserId = selectedUserId;
+  }
+  const res = await apiPost('/api/data/bootstrap', body);
   return parseJson(res);
 }
 
