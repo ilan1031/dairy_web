@@ -14,6 +14,8 @@ import {
   updateCatalogApi,
   getTokenConfigApi,
   updateTokenConfigApi,
+  getIpLimitApi,
+  updateIpLimitApi,
 } from '@/lib/dataApi';
 import { PlusCircle, Users, ArrowLeft, Trash2, Loader2, Shield, Key, Clock } from 'lucide-react';
 
@@ -392,6 +394,14 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
   const [subscriptionDays, setSubscriptionDays] = useState('30');
   const [tokenConfigSaving, setTokenConfigSaving] = useState(false);
 
+  const [ipQuery, setIpQuery] = useState('');
+  const [ipLimit, setIpLimit] = useState<number | ''>('');
+  const [ipUsage, setIpUsage] = useState<number | null>(null);
+  const [ipLimitLoaded, setIpLimitLoaded] = useState(false);
+  const [ipLimitLoading, setIpLimitLoading] = useState(false);
+  const [ipLimitSaving, setIpLimitSaving] = useState(false);
+  const [ipLimitError, setIpLimitError] = useState<string | null>(null);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -457,8 +467,11 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
   };
 
   useEffect(() => {
-    refresh();
-  }, []);
+    const timer = window.setTimeout(() => {
+      void refresh();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
 
   const persistUser = async (user: UserModel, password?: string) => {
     setSaving(true);
@@ -732,6 +745,96 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
             </div>
           </form>
         </div>
+      )}
+
+      {isSuperAdminSession() && (
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}><Shield size={16} /> Manage IP Rate Limits</h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 8 }}>
+            Lookup and update the signup limit for a specific IP address.
+          </p>
+        <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
+            <input
+              className="form-input"
+              placeholder="Enter IP address"
+              value={ipQuery}
+              onChange={(e) => setIpQuery(e.target.value.trim())}
+            />
+            <button className="btn btn-outline" onClick={async () => {
+              if (!ipQuery) return setIpLimitError('Enter an IP address to lookup');
+              setIpLimitError(null);
+              setIpLimitLoading(true);
+              try {
+                const info = await getIpLimitApi(ipQuery);
+                setIpLimit(info.limit);
+                setIpUsage(info.count);
+                setIpLimitLoaded(true);
+              } catch (err) {
+                setIpLimitError(err instanceof Error ? err.message : 'Failed to load IP limit');
+                setIpLimitLoaded(false);
+              } finally {
+                setIpLimitLoading(false);
+              }
+            }} disabled={ipLimitLoading}>
+              {ipLimitLoading ? 'Loading…' : 'Lookup'}
+            </button>
+          </div>
+
+          {ipLimitLoaded && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Current limit</div>
+                <input
+                  className="form-input"
+                  type="number"
+                  min={1}
+                  value={ipLimit}
+                  onChange={(e) => setIpLimit(e.target.value === '' ? '' : Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Current count</div>
+                <input className="form-input" type="text" value={ipUsage ?? ''} disabled />
+              </div>
+            </div>
+          )}
+
+          {ipLimitError && (
+            <div style={{ color: 'var(--alert-red)', fontSize: '0.88rem' }}>{ipLimitError}</div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button className="btn btn-outline" type="button" onClick={() => {
+              setIpLimitLoaded(false);
+              setIpLimit('');
+              setIpUsage(null);
+              setIpLimitError(null);
+            }}>
+              Reset
+            </button>
+            <button className="btn btn-primary" type="button" onClick={async () => {
+              if (!ipQuery) return setIpLimitError('Enter an IP address to update');
+              if (ipLimit === '' || Number(ipLimit) < 1) return setIpLimitError('Limit must be a positive integer');
+              setIpLimitSaving(true);
+              setIpLimitError(null);
+              try {
+                const updated = await updateIpLimitApi(ipQuery, Number(ipLimit));
+                setIpLimit(updated.limit);
+                setIpUsage(updated.count);
+                setIpLimitLoaded(true);
+                onSuccessToast?.('IP limit updated.');
+              } catch (err) {
+                setIpLimitError(err instanceof Error ? err.message : 'Failed to update IP limit');
+              } finally {
+                setIpLimitSaving(false);
+              }
+            }} disabled={ipLimitSaving}>
+              {ipLimitSaving ? 'Saving…' : 'Save Limit'}
+            </button>
+          </div>
+        </div>
+      </div>
       )}
 
       <div className="card">

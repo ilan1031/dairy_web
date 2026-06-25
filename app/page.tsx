@@ -62,6 +62,9 @@ function HomeContent() {
   const [regPhone, setRegPhone] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPass, setRegPass] = useState('');
+  const [detectedIp, setDetectedIp] = useState('');
+  const [detectingIp, setDetectingIp] = useState(false);
+  const [detectIpError, setDetectIpError] = useState('');
 
   const [authError, setAuthError] = useState('');
   const [showToast, setShowToast] = useState(false);
@@ -145,10 +148,37 @@ function HomeContent() {
       } else {
         setAuthError(data.error || 'Invalid credentials');
       }
-    } catch (err) {
+    } catch {
       setAuthError('Network error. Failed to authenticate.');
     }
   };
+
+  useEffect(() => {
+    if (authScreen !== 'REGISTER' || detectedIp || detectingIp) return;
+
+    const detectIp = async () => {
+      setDetectingIp(true);
+      setDetectIpError('');
+      try {
+        const response = await fetch('https://api.ipify.org?format=json');
+        if (!response.ok) {
+          throw new Error(`IP detection failed: ${response.statusText}`);
+        }
+        const json = await response.json();
+        if (json.ip) {
+          setDetectedIp(String(json.ip));
+        } else {
+          throw new Error('IP address not found');
+        }
+      } catch (err) {
+        setDetectIpError(err instanceof Error ? err.message : 'Unable to detect IP address');
+      } finally {
+        setDetectingIp(false);
+      }
+    };
+
+    void detectIp();
+  }, [authScreen, detectedIp, detectingIp]);
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,6 +191,7 @@ function HomeContent() {
         mobileNumber: regPhone,
         emailAddress: regEmail,
         password: regPass,
+        ...(detectedIp ? { ipAddress: detectedIp } : {}),
       });
       const data = await res.json();
 
@@ -182,7 +213,7 @@ function HomeContent() {
       } else {
         setAuthError(data.error || 'Registration failed');
       }
-    } catch (err) {
+    } catch {
       setAuthError('Network error. Failed to register.');
     }
   };
@@ -436,6 +467,10 @@ function HomeContent() {
                   style={{ padding: '8px 12px', fontSize: '0.9rem' }}
                   required
                 />
+              </div>
+
+              <div style={{ width: '100%', textAlign: 'left', fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '0 4px' }}>
+                {detectingIp ? 'Detecting your public IP address…' : detectedIp ? `Detected IP: ${detectedIp}` : detectIpError ? `IP detection failed: ${detectIpError}` : 'Public IP will be attached to signup request when available.'}
               </div>
 
               <div className="form-group" style={{ width: '100%', marginBottom: 0 }}>

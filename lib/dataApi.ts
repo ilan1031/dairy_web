@@ -84,7 +84,7 @@ export async function saveBillingApi(config: object, ownerUserId?: string) {
 
 export async function saveBrandingApi(config: object, ownerUserId?: string) {
   const res = await apiPost('/api/data/branding/save', { ...config, ownerUserId });
-  return parseJson<any>(res);
+  return parseJson<Record<string, unknown>>(res);
 }
 
 export async function logAuditApi(entry: object) {
@@ -145,4 +145,20 @@ export async function getTokenConfigApi() {
 export async function updateTokenConfigApi(config: Partial<TokenConfig>) {
   const res = await apiPost('/api/admin/token-config/update', config);
   return parseJson<TokenConfig>(res);
+}
+
+export interface IpLimitInfo {
+  ipAddress: string;
+  limit: number;
+  count: number;
+}
+
+export async function getIpLimitApi(ipAddress: string) {
+  const res = await apiPost('/api/admin/ip-limit/get', { ipAddress });
+  return parseJson<IpLimitInfo>(res);
+}
+
+export async function updateIpLimitApi(ipAddress: string, limit: number) {
+  const res = await apiPost('/api/admin/ip-limit/update', { ipAddress, limit });
+  return parseJson<IpLimitInfo>(res);
 }
