@@ -257,6 +257,11 @@ export default function BillsTab({ onInvoiceClick }: BillsTabProps) {
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     {t(sale.milkType)} • {sale.liters} L • ₹{sale.ratePerLiter}/L
                   </span>
+                  {sale.ownerName && (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--primary-milk)', fontWeight: 600 }}>
+                      Owner: {sale.ownerName}
+                    </span>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>

@@ -925,6 +925,11 @@ export default function ProfilesTab({
                   <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     {cust.phone ? `📞 ${cust.phone}` : 'No phone listed'}
                   </div>
+                  {cust.ownerName && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--primary-milk)', marginTop: '2px', fontWeight: 600 }}>
+                      Owner: {cust.ownerName}
+                    </div>
+                  )}
                   {cust.notes && (
                     <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       📝 {cust.notes}
