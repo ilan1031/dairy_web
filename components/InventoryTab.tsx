@@ -4,15 +4,14 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '@/app/providers';
 import Repository, { PriceConfig, PriceLog, MilkInventory } from '@/lib/repository';
-import { hasPageAction } from '@/lib/permissions';
+import { hasPermission } from '@/lib/permissions';
 import { ArrowLeft, Save, PlusCircle, Calendar, LineChart, X } from 'lucide-react';
 
 interface InventoryTabProps {
-  viewAsUserId?: string;
   onBack: () => void;
 }
 
-export default function InventoryTab({ viewAsUserId, onBack }: InventoryTabProps) {
+export default function InventoryTab({ onBack }: InventoryTabProps) {
   const { t } = useLanguage();
 
   const [prices, setPrices] = useState<PriceConfig[]>([]);
@@ -26,7 +25,6 @@ export default function InventoryTab({ viewAsUserId, onBack }: InventoryTabProps
 
   // Category rates manager
   const [selectedEditType, setSelectedEditType] = useState('Cow Milk');
-  const [editNameInput, setEditNameInput] = useState('Cow Milk');
   const [editPriceInput, setEditPriceInput] = useState('50');
 
   // Add category dialog
@@ -42,14 +40,10 @@ export default function InventoryTab({ viewAsUserId, onBack }: InventoryTabProps
 
     if (prs.length > 0 && !prs.find(p => p.milkType === selectedEditType)) {
       setSelectedEditType(prs[0].milkType);
-      setEditNameInput(prs[0].milkType);
     }
 
     const found = prs.find(p => p.milkType === selectedEditType);
     setEditPriceInput(found ? found.currentPrice.toString() : '50');
-    if (found && editNameInput !== found.milkType) {
-      setEditNameInput(found.milkType);
-    }
 
     // Populate stock inputs from inventory for selected date
     const inventories = Repository.getMilkInventories();
@@ -79,9 +73,9 @@ export default function InventoryTab({ viewAsUserId, onBack }: InventoryTabProps
 
   useEffect(() => {
     loadData();
-  }, [dateStr, selectedEditType, viewAsUserId]);
+  }, [dateStr, selectedEditType]);
 
-  if (!hasPageAction('Inventory', 'view')) {
+  if (!hasPermission('canRead')) {
     return (
       <div className="card">
         <h3 style={{ margin: 0 }}>Access Denied</h3>
@@ -92,7 +86,7 @@ export default function InventoryTab({ viewAsUserId, onBack }: InventoryTabProps
 
   const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hasPageAction('Inventory', 'create')) return alert('Permission denied');
+    if (!hasPermission('canCreate')) return alert('Permission denied');
     if (!newCatName || !newCatPrice) return;
     await Repository.savePriceConfig(newCatName, parseFloat(newCatPrice));
     setNewCatName('');
@@ -102,40 +96,16 @@ export default function InventoryTab({ viewAsUserId, onBack }: InventoryTabProps
   };
 
   const handleUpdateBaseRate = async () => {
-    if (!hasPageAction('Inventory', 'edit')) return alert('Permission denied');
-    const price = parseFloat(editPriceInput);
-    if (isNaN(price)) return alert('Invalid price input');
-    if (!editNameInput.trim()) return alert('Category name required');
-
-    await Repository.savePriceConfig(editNameInput.trim(), price, selectedEditType);
-    setSelectedEditType(editNameInput.trim());
+    if (!hasPermission('canUpdate')) return alert('Permission denied');
+    const num = parseFloat(editPriceInput);
+    if (isNaN(num)) return;
+    await Repository.savePriceConfig(selectedEditType, num);
     loadData();
-    alert('Category updated successfully!');
-  };
-
-  const handleDeleteCategory = async () => {
-    if (!hasPageAction('Inventory', 'delete')) return alert('Permission denied');
-    if (!confirm(`Delete category "${selectedEditType}"?`)) return;
-
-    await Repository.deletePriceConfig(selectedEditType);
-
-    const prs = Repository.getPriceConfigs().filter(p => p.milkType !== selectedEditType);
-    if (prs.length > 0) {
-      setSelectedEditType(prs[0].milkType);
-      setEditNameInput(prs[0].milkType);
-      setEditPriceInput(prs[0].currentPrice.toString());
-    } else {
-      setSelectedEditType('');
-      setEditNameInput('');
-      setEditPriceInput('');
-    }
-    loadData();
-    alert('Category deleted successfully!');
   };
 
   const handleSaveInventory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hasPageAction('Inventory', 'create')) return alert('Permission denied');
+    if (!hasPermission('canCreate')) return alert('Permission denied');
 
     let cowL = 0, bufL = 0, a2L = 0;
     const customPairs: string[] = [];
@@ -267,7 +237,6 @@ export default function InventoryTab({ viewAsUserId, onBack }: InventoryTabProps
               {categoryList.map(cat => (
                 <button key={cat.milkType} type="button" onClick={() => {
                   setSelectedEditType(cat.milkType);
-                  setEditNameInput(cat.milkType);
                   setEditPriceInput(cat.currentPrice.toString());
                 }}
                   style={{
@@ -283,27 +252,14 @@ export default function InventoryTab({ viewAsUserId, onBack }: InventoryTabProps
           </div>
 
           <div className="form-group">
-            <label className="form-label">Category Name</label>
-            <input type="text" className="form-input" value={editNameInput}
-              onChange={(e) => setEditNameInput(e.target.value)} />
-          </div>
-
-          <div className="form-group">
             <label className="form-label">Base Price (₹/L)</label>
             <input type="number" step="0.1" className="form-input" value={editPriceInput}
               onChange={(e) => setEditPriceInput(e.target.value)} />
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-            <button className="btn btn-primary" onClick={handleUpdateBaseRate} style={{ flex: 2 }}>
-              Update Category
-            </button>
-            {categoryList.length > 0 && selectedEditType && (
-              <button className="btn btn-danger" type="button" onClick={handleDeleteCategory} style={{ flex: 1 }}>
-                Delete
-              </button>
-            )}
-          </div>
+          <button className="btn btn-primary" onClick={handleUpdateBaseRate} style={{ width: '100%' }}>
+            Update Base Class Rate
+          </button>
         </div>
       )}
 

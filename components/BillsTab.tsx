@@ -4,11 +4,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLanguage } from '@/app/providers';
 import Repository, { Sale } from '@/lib/repository';
-import { hasPageAction } from '@/lib/permissions';
+import { hasPermission } from '@/lib/permissions';
 import { Search, Receipt, Filter, CheckCircle, Clock, X, SlidersHorizontal } from 'lucide-react';
 
 interface BillsTabProps {
-  viewAsUserId?: string;
   onInvoiceClick: (sale: Sale) => void;
 }
 
@@ -21,7 +20,7 @@ function parseDateStr(dateStr: string, isStart: boolean): number | null {
   return d.getTime();
 }
 
-export default function BillsTab({ viewAsUserId, onInvoiceClick }: BillsTabProps) {
+export default function BillsTab({ onInvoiceClick }: BillsTabProps) {
   const { t, language } = useLanguage();
 
   const [sales, setSales] = useState<Sale[]>([]);
@@ -38,7 +37,7 @@ export default function BillsTab({ viewAsUserId, onInvoiceClick }: BillsTabProps
 
   useEffect(() => {
     Repository.getAllSales().then(setSales).catch(console.error);
-  }, [viewAsUserId]);
+  }, []);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -103,7 +102,7 @@ export default function BillsTab({ viewAsUserId, onInvoiceClick }: BillsTabProps
     setDateFilter('All');
   };
 
-  if (!hasPageAction('Bills', 'view')) {
+  if (!hasPermission('canRead')) {
     return (
       <div className="card">
         <h3 style={{ margin: 0 }}>Access Denied</h3>
@@ -258,11 +257,6 @@ export default function BillsTab({ viewAsUserId, onInvoiceClick }: BillsTabProps
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     {t(sale.milkType)} • {sale.liters} L • ₹{sale.ratePerLiter}/L
                   </span>
-                  {sale.ownerName && (
-                    <span style={{ fontSize: '0.78rem', color: 'var(--primary-milk)', fontWeight: 600 }}>
-                      Owner: {sale.ownerName}
-                    </span>
-                  )}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>

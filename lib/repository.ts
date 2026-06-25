@@ -1,42 +1,28 @@
-import {
-  bootstrap as bootstrapApi,
-  saveProfileApi,
-  saveCustomerApi,
-  deleteCustomerApi,
-  saveSaleApi,
-  deleteSaleApi,
-  markSalePaidApi,
-  savePriceApi,
-  deletePriceApi,
-  saveInventoryApi,
-  saveBillingApi,
-  saveBrandingApi,
-  logAuditApi,
-  importDataApi,
-  type BootstrapPayload,
-} from './dataApi';
-import { BillingConfig, normalizeBillingConfig } from './billingConfig';
-import type { AuditLogEntry } from './auditLog';
-import type {
-  PermissionSet,
-  UserProfile,
-  PermissionCatalog,
-  DataAccessScope,
-  PermissionAction,
-  UserSubscription,
-} from './pages';
-import type { SubscriptionStatus } from './subscription';
+// d:/Gitfiles/dairy/dairy-web/lib/repository.ts
+import { db, isFirebaseConfigured } from './firebase';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  getDocs, 
+  query, 
+  orderBy, 
+  limit, 
+  startAfter, 
+  deleteDoc, 
+  writeBatch,
+  getDoc,
+  where
+} from 'firebase/firestore';
+import LoadBalancer from './loadbalancer';
 
 export interface Customer {
   id: string;
   name: string;
   phone: string;
-  qrPreference: string;
+  qrPreference: string; // "UPI", "CASH"
   address?: string;
   notes?: string;
-  ownerUserId?: string;
-  ownerName?: string;
-  ownerEmail?: string;
   updatedAt: number;
 }
 
@@ -44,16 +30,13 @@ export interface Sale {
   id: string;
   customerId: string;
   customerName: string;
-  milkType: string;
+  milkType: string; // "Cow Milk", "Buffalo Milk", "A2 Milk"
   liters: number;
   ratePerLiter: number;
   totalAmount: number;
-  paymentStatus: string;
-  paymentType: string;
+  paymentStatus: string; // "PAID", "PENDING"
+  paymentType: string; // "CASH", "UPI", "NONE"
   location: string;
-  ownerUserId?: string;
-  ownerName?: string;
-  ownerEmail?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -61,9 +44,6 @@ export interface Sale {
 export interface PriceConfig {
   milkType: string;
   currentPrice: number;
-  ownerUserId?: string;
-  ownerName?: string;
-  ownerEmail?: string;
   updatedAt: number;
 }
 
@@ -72,21 +52,15 @@ export interface PriceLog {
   milkType: string;
   oldPrice: number;
   newPrice: number;
-  ownerUserId?: string;
-  ownerName?: string;
-  ownerEmail?: string;
   timestamp: number;
 }
 
 export interface MilkInventory {
-  dateStr: string;
+  dateStr: string; // "yyyy-MM-dd"
   cowLiters: number;
   buffaloLiters: number;
   a2Liters: number;
   customStocksRaw: string;
-  ownerUserId?: string;
-  ownerName?: string;
-  ownerEmail?: string;
   updatedAt: number;
 }
 
@@ -100,506 +74,525 @@ export interface Profile {
   language: string;
 }
 
-export interface TokenConfig {
-  sessionExpirySeconds: number;
-  loginExpirySeconds: number;
-  subscriptionExpirySeconds: number;
-  updatedAt: number;
+// In-Memory & LocalStorage Cache keys
+const KEYS = {
+  CUSTOMERS: 'dairy_customers',
+  SALES: 'dairy_sales',
+  PRICES: 'dairy_prices',
+  PRICELOGS: 'dairy_price_logs',
+  INVENTORY: 'dairy_inventory',
+  PROFILE: 'dairy_profile',
+  USERS: 'dairy_users',
+  CURRENT_USER: 'dairy_current_user'
+};
+
+export interface PermissionSet {
+  canCreate: boolean;
+  canRead: boolean;
+  canUpdate: boolean;
+  canDelete: boolean;
+  allowedPages: string[]; // page identifiers
+  canUseSubscription?: boolean;
+  canViewOthers?: boolean;
 }
 
 export interface UserModel {
   id: string;
   name: string;
   email: string;
-  role: string;
-  active: boolean;
-  subscription?: UserSubscription | null;
+  role: string; // e.g., 'user' | 'admin' | 'superadmin'
+  subscription?: {
+    plan: string;
+    expiresAt?: number;
+  } | null;
   permissions: PermissionSet;
-  profile?: UserProfile;
   createdAt: number;
   updatedAt: number;
 }
 
-export interface BrandingConfig {
-  bankName: string;
-  systemName: string;
-  logo: string;
-  address: string;
-  ownerUserId?: string;
-  updatedAt: number;
-}
-
-export type { PermissionSet, UserProfile, PermissionCatalog, DataAccessScope, PermissionAction };
-
-interface DataCache {
-  profile: Profile | null;
-  customers: Customer[];
-  sales: Sale[];
-  priceConfigs: PriceConfig[];
-  priceLogs: PriceLog[];
-  inventory: MilkInventory[];
-  users: UserModel[];
-  billingConfig: BillingConfig | null;
-  brandingConfig: BrandingConfig | null;
-  auditLogs: AuditLogEntry[];
-  currentUser: UserModel | null;
-  permissionCatalog: PermissionCatalog | null;
-  isSuperAdmin: boolean;
-  subscriptionStatus: SubscriptionStatus | null;
-}
-
-function emptyCache(): DataCache {
-  return {
-    profile: null,
-    customers: [],
-    sales: [],
-    priceConfigs: [],
-    priceLogs: [],
-    inventory: [],
-    users: [],
-    billingConfig: null,
-    brandingConfig: null,
-    auditLogs: [],
-    currentUser: null,
-    permissionCatalog: null,
-    isSuperAdmin: false,
-    subscriptionStatus: null,
-  };
-}
-
 class Repository {
-  private static cache: DataCache = emptyCache();
-  private static _initialized = false;
-  private static _initPromise: Promise<void> | null = null;
-  private static _sessionSuperAdmin = false;
-  private static _viewAsUserId: string | null = null;
-
-  static getViewAsUserId(): string | null {
-    return this._viewAsUserId;
+  // Helper to load from LocalStorage
+  private static getLocal<T>(key: string, defaultVal: T): T {
+    if (typeof window === 'undefined') return defaultVal;
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : defaultVal;
   }
 
-  static isSessionSuperAdmin(): boolean {
-    return this._sessionSuperAdmin;
+  // Helper to save to LocalStorage
+  private static saveLocal<T>(key: string, data: T): void {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(key, JSON.stringify(data));
   }
 
-  static setSessionSuperAdmin(val: boolean): void {
-    this._sessionSuperAdmin = val;
-  }
-
-  static isInitialized(): boolean {
-    return this._initialized;
-  }
-
-  static ensureReady(): Promise<void> {
-    return this.initialize();
-  }
-
-  static initialize(selectedUserId?: string | null): Promise<void> {
-    if (selectedUserId !== undefined) {
-      this._initialized = false;
-      this._initPromise = this._doInitialize(selectedUserId);
-      return this._initPromise;
-    }
-    if (this._initialized) return Promise.resolve();
-    if (this._initPromise) return this._initPromise;
-    this._initPromise = this._doInitialize();
-    return this._initPromise;
-  }
-
-  private static applyBootstrap(data: BootstrapPayload): void {
-    this.cache.profile = data.profile ? (data.profile as unknown as Profile) : null;
-    this.cache.customers = (data.customers || []) as unknown as Customer[];
-    this.cache.sales = (data.sales || []) as unknown as Sale[];
-    this.cache.priceConfigs = (data.priceConfigs || []) as unknown as PriceConfig[];
-    this.cache.priceLogs = (data.priceLogs || []) as unknown as PriceLog[];
-    this.cache.inventory = (data.inventory || []) as unknown as MilkInventory[];
-    this.cache.users = (data.users || []) as unknown as UserModel[];
-    this.cache.billingConfig = data.billingConfig ? (data.billingConfig as unknown as BillingConfig) : null;
-    this.cache.brandingConfig = data.brandingConfig ? (data.brandingConfig as unknown as BrandingConfig) : null;
-    this.cache.auditLogs = (data.auditLogs || []) as unknown as AuditLogEntry[];
-    this.cache.permissionCatalog = data.permissionCatalog || null;
-    this.cache.isSuperAdmin = Boolean(data.isSuperAdmin);
-    if (data.subscriptionStatus) {
-      this.cache.subscriptionStatus = data.subscriptionStatus as SubscriptionStatus;
-    }
-    if (data.sessionUser) {
-      this.cache.currentUser = data.sessionUser as unknown as UserModel;
-    }
-  }
-
-  static isSuperAdmin(): boolean {
-    return this.cache.isSuperAdmin || this.cache.currentUser?.role === 'superadmin';
-  }
-
-  static getPermissionCatalog(): PermissionCatalog | null {
-    return this.cache.permissionCatalog;
-  }
-
-  static setPermissionCatalog(catalog: PermissionCatalog): void {
-    this.cache.permissionCatalog = catalog;
-  }
-
-  static setSubscriptionStatus(status: SubscriptionStatus): void {
-    this.cache.subscriptionStatus = status;
-  }
-
-  static getSubscriptionStatus(): SubscriptionStatus | null {
-    return this.cache.subscriptionStatus;
-  }
-
-  static setSessionUser(user: UserModel | null, isSuperAdmin = false): void {
-    this.cache.currentUser = user;
-    this.cache.isSuperAdmin = isSuperAdmin;
-    if (isSuperAdmin || user?.role === 'superadmin') {
-      this._sessionSuperAdmin = true;
-    }
-  }
-
-  private static async _doInitialize(selectedUserId?: string | null): Promise<void> {
-    try {
-      const data = await bootstrapApi(selectedUserId);
-      this.applyBootstrap(data);
-    } catch (err) {
-      console.error('[Repo] Bootstrap from API failed:', err);
-      throw err;
-    }
-    this._initialized = true;
-  }
-
-  static async changeActiveUser(viewAsUserId: string | null): Promise<void> {
-    this._viewAsUserId = viewAsUserId;
-    this.clearSession();
-    await this.initialize(viewAsUserId ?? undefined);
-  }
-
-  static async refreshFromServer(): Promise<void> {
-    this._initialized = false;
-    this._initPromise = null;
-    await this.initialize(this._viewAsUserId ?? undefined);
-  }
-
-  static clearSession(): void {
-    this.cache = emptyCache();
-    this._initialized = false;
-    this._initPromise = null;
-  }
-
-  static exportSnapshot(): BootstrapPayload {
-    return {
-      profile: this.cache.profile as unknown as Record<string, unknown> | null,
-      customers: this.cache.customers as unknown as Record<string, unknown>[],
-      sales: this.cache.sales as unknown as Record<string, unknown>[],
-      priceConfigs: this.cache.priceConfigs as unknown as Record<string, unknown>[],
-      priceLogs: this.cache.priceLogs as unknown as Record<string, unknown>[],
-      inventory: this.cache.inventory as unknown as Record<string, unknown>[],
-      users: this.cache.users as unknown as Record<string, unknown>[],
-      billingConfig: this.cache.billingConfig as unknown as Record<string, unknown> | null,
-      brandingConfig: this.cache.brandingConfig as unknown as Record<string, unknown> | null,
-      auditLogs: this.cache.auditLogs as unknown as Record<string, unknown>[],
-    };
-  }
-
-  static async importSnapshot(payload: BootstrapPayload): Promise<void> {
-    const data = await importDataApi(payload);
-    this.applyBootstrap(data);
-    this._initialized = true;
-  }
-
+  // --- PROFILE METHODS ---
   static getProfile(): Profile {
-    if (!this.cache.profile) {
-      return {
-        businessName: '',
-        ownerName: '',
-        mobileNumber: '',
-        emailAddress: '',
-        signupTimestamp: 0,
-        isLightTheme: true,
-        language: 'en',
-      };
-    }
-    return this.cache.profile;
+    const defaultProfile: Profile = {
+      businessName: 'Ganga Premium Dairy',
+      ownerName: 'Arun Kumar',
+      mobileNumber: '9876543210',
+      emailAddress: 'arun@gangadairy.com',
+      signupTimestamp: Date.now(),
+      isLightTheme: true,
+      language: 'en'
+    };
+    return this.getLocal<Profile>(KEYS.PROFILE, defaultProfile);
   }
 
   static saveProfile(profile: Partial<Profile>): void {
-    const updated = { ...this.getProfile(), ...profile };
-    this.cache.profile = updated;
-    if (!this._initialized) return;
-    saveProfileApi(updated).catch((err) => console.error('[Repo] Profile save failed:', err));
-  }
+    const current = this.getProfile();
+    const updated = { ...current, ...profile };
+    this.saveLocal(KEYS.PROFILE, updated);
 
-  private static resolveOwnerMeta(ownerUserId?: string): { ownerName?: string; ownerEmail?: string } {
-    const targetUserId = ownerUserId || this.cache.currentUser?.id;
-    if (!targetUserId) return {};
-    const user = this.cache.users.find((u) => u.id === targetUserId || u.email === targetUserId);
-    if (!user) return {};
-    return {
-      ownerName: user.profile?.displayName || user.name || user.email || undefined,
-      ownerEmail: user.email || undefined,
-    };
-  }
-
-  private static withOwnerMeta<T extends { ownerUserId?: string }>(item: T): T {
-    const ownerMeta = this.resolveOwnerMeta(item.ownerUserId);
-    return { ...item, ...ownerMeta };
-  }
-
-  static async getCustomers(batchSize = 20, lastVisibleId?: string): Promise<{ data: Customer[]; hasMore: boolean }> {
-    const all = [...this.cache.customers].sort((a, b) => a.name.localeCompare(b.name)).map((customer) => this.withOwnerMeta(customer));
-    let startIndex = 0;
-    if (lastVisibleId) {
-      const index = all.findIndex((c) => c.id === lastVisibleId);
-      if (index !== -1) startIndex = index + 1;
+    // Sync to Firebase in background if configured
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async (node) => {
+        const userRef = doc(db!, 'profiles', updated.emailAddress);
+        await setDoc(userRef, updated, { merge: true });
+        console.log(`[Repo] Profile synced via ${node}`);
+      }).catch(err => console.error('[Repo] Firebase Profile sync failed:', err));
     }
-    const paginated = all.slice(startIndex, startIndex + batchSize);
-    return { data: paginated, hasMore: startIndex + batchSize < all.length };
+  }
+
+  // --- CUSTOMER METHODS ---
+  static async getCustomers(batchSize = 20, lastVisibleId?: string): Promise<{ data: Customer[]; hasMore: boolean }> {
+    return LoadBalancer.execute(async (node) => {
+      // 1. Get from local storage first (immediate speed)
+      let localCustomers = this.getLocal<Customer[]>(KEYS.CUSTOMERS, []);
+
+      // If Firebase is configured, try fetching and merging changes
+      if (isFirebaseConfigured && db) {
+        try {
+          const colRef = collection(db, 'customers');
+          let q = query(colRef, orderBy('name'), limit(batchSize));
+          
+          if (lastVisibleId) {
+            const lastDocRef = doc(db, 'customers', lastVisibleId);
+            const lastDocSnap = await getDoc(lastDocRef);
+            if (lastDocSnap.exists()) {
+              q = query(colRef, orderBy('name'), startAfter(lastDocSnap), limit(batchSize));
+            }
+          }
+
+          const snap = await getDocs(q);
+          const fbCustomers: Customer[] = [];
+          snap.forEach(docSnap => {
+            fbCustomers.push(docSnap.data() as Customer);
+          });
+
+          // Merge into local store to update offline cache
+          if (fbCustomers.length > 0) {
+            const customerMap = new Map(localCustomers.map(c => [c.id, c]));
+            fbCustomers.forEach(c => customerMap.set(c.id, c));
+            localCustomers = Array.from(customerMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+            this.saveLocal(KEYS.CUSTOMERS, localCustomers);
+          }
+        } catch (err) {
+          console.warn('[Repo] Failed Firestore customers read, using offline cache:', err);
+        }
+      }
+
+      // Perform local pagination
+      let startIndex = 0;
+      if (lastVisibleId) {
+        const index = localCustomers.findIndex(c => c.id === lastVisibleId);
+        if (index !== -1) {
+          startIndex = index + 1;
+        }
+      }
+
+      const paginated = localCustomers.slice(startIndex, startIndex + batchSize);
+      const hasMore = startIndex + batchSize < localCustomers.length;
+
+      return { data: paginated, hasMore };
+    });
   }
 
   static async getAllCustomers(): Promise<Customer[]> {
-    return this.cache.customers.map((customer) => this.withOwnerMeta(customer));
+    return this.getLocal<Customer[]>(KEYS.CUSTOMERS, []);
   }
 
   static async saveCustomer(customer: Customer): Promise<void> {
-    const ownerUserId = customer.ownerUserId || this.cache.currentUser?.id;
-    const updatedCustomer = { ...customer, ownerUserId };
-    const idx = this.cache.customers.findIndex((c) => c.id === customer.id);
-    const isNew = idx === -1;
-    if (idx !== -1) this.cache.customers[idx] = updatedCustomer;
-    else this.cache.customers.push(updatedCustomer);
-    this.logAudit(isNew ? 'CREATE' : 'UPDATE', 'customer', customer.id, { name: customer.name, phone: customer.phone });
-    await saveCustomerApi(updatedCustomer).catch((err) => console.error('[Repo] Customer save failed:', err));
+    // Save locally
+    const local = this.getLocal<Customer[]>(KEYS.CUSTOMERS, []);
+    const idx = local.findIndex(c => c.id === customer.id);
+    if (idx !== -1) {
+      local[idx] = customer;
+    } else {
+      local.push(customer);
+    }
+    this.saveLocal(KEYS.CUSTOMERS, local);
+
+    // Sync in background
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async () => {
+        await setDoc(doc(db!, 'customers', customer.id), customer);
+      }).catch(err => console.error('[Repo] Save customer Firestore failed:', err));
+    }
   }
 
   static async deleteCustomer(id: string): Promise<void> {
-    this.cache.customers = this.cache.customers.filter((c) => c.id !== id);
-    this.logAudit('DELETE', 'customer', id);
-    await deleteCustomerApi(id).catch((err) => console.error('[Repo] Customer delete failed:', err));
+    // Delete locally
+    let local = this.getLocal<Customer[]>(KEYS.CUSTOMERS, []);
+    local = local.filter(c => c.id !== id);
+    this.saveLocal(KEYS.CUSTOMERS, local);
+
+    // Delete in background
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async () => {
+        await deleteDoc(doc(db!, 'customers', id));
+      }).catch(err => console.error('[Repo] Delete customer Firestore failed:', err));
+    }
   }
 
+  // --- SALES METHODS ---
   static async getSales(batchSize = 20, lastVisibleId?: string, filterCustomer?: string, filterDateRange?: string): Promise<{ data: Sale[]; hasMore: boolean }> {
-    let filtered = [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
-    if (filterCustomer) {
-      filtered = filtered.filter((s) => s.customerName.toLowerCase().includes(filterCustomer.toLowerCase()));
-    }
-    if (filterDateRange) {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      const todayMs = now.getTime();
-      if (filterDateRange === 'Today') filtered = filtered.filter((s) => s.createdAt >= todayMs);
-      else if (filterDateRange === 'Week') filtered = filtered.filter((s) => s.createdAt >= todayMs - 7 * 86400000);
-      else if (filterDateRange === 'Month') filtered = filtered.filter((s) => s.createdAt >= todayMs - 30 * 86400000);
-      else if (filterDateRange === 'Year') filtered = filtered.filter((s) => s.createdAt >= todayMs - 365 * 86400000);
-    }
-    let startIndex = 0;
-    if (lastVisibleId) {
-      const index = filtered.findIndex((s) => s.id === lastVisibleId);
-      if (index !== -1) startIndex = index + 1;
-    }
-    const paginated = filtered.slice(startIndex, startIndex + batchSize);
-    return { data: paginated, hasMore: startIndex + batchSize < filtered.length };
+    return LoadBalancer.execute(async (node) => {
+      let localSales = this.getLocal<Sale[]>(KEYS.SALES, []);
+
+      // Sort local sales by date descending
+      localSales.sort((a, b) => b.createdAt - a.createdAt);
+
+      if (isFirebaseConfigured && db) {
+        try {
+          const colRef = collection(db, 'sales');
+          let q = query(colRef, orderBy('createdAt', 'desc'), limit(batchSize));
+
+          if (lastVisibleId) {
+            const lastDocRef = doc(db, 'sales', lastVisibleId);
+            const lastDocSnap = await getDoc(lastDocRef);
+            if (lastDocSnap.exists()) {
+              q = query(colRef, orderBy('createdAt', 'desc'), startAfter(lastDocSnap), limit(batchSize));
+            }
+          }
+
+          const snap = await getDocs(q);
+          const fbSales: Sale[] = [];
+          snap.forEach(docSnap => {
+            fbSales.push(docSnap.data() as Sale);
+          });
+
+          // Sync local storage cache
+          if (fbSales.length > 0) {
+            const salesMap = new Map(localSales.map(s => [s.id, s]));
+            fbSales.forEach(s => salesMap.set(s.id, s));
+            localSales = Array.from(salesMap.values()).sort((a, b) => b.createdAt - a.createdAt);
+            this.saveLocal(KEYS.SALES, localSales);
+          }
+        } catch (err) {
+          console.warn('[Repo] Firestore sales read failed, using offline cache:', err);
+        }
+      }
+
+      // Client-side filtering on local cache
+      let filtered = [...localSales];
+      if (filterCustomer) {
+        filtered = filtered.filter(s => s.customerName.toLowerCase().includes(filterCustomer.toLowerCase()));
+      }
+      
+      if (filterDateRange) {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const todayMs = now.getTime();
+
+        if (filterDateRange === 'Today') {
+          filtered = filtered.filter(s => s.createdAt >= todayMs);
+        } else if (filterDateRange === 'Week') {
+          const weekAgo = todayMs - 7 * 24 * 60 * 60 * 1000;
+          filtered = filtered.filter(s => s.createdAt >= weekAgo);
+        } else if (filterDateRange === 'Month') {
+          const monthAgo = todayMs - 30 * 24 * 60 * 60 * 1000;
+          filtered = filtered.filter(s => s.createdAt >= monthAgo);
+        } else if (filterDateRange === 'Year') {
+          const yearAgo = todayMs - 365 * 24 * 60 * 60 * 1000;
+          filtered = filtered.filter(s => s.createdAt >= yearAgo);
+        }
+      }
+
+      // Paginate
+      let startIndex = 0;
+      if (lastVisibleId) {
+        const index = filtered.findIndex(s => s.id === lastVisibleId);
+        if (index !== -1) {
+          startIndex = index + 1;
+        }
+      }
+
+      const paginated = filtered.slice(startIndex, startIndex + batchSize);
+      const hasMore = startIndex + batchSize < filtered.length;
+
+      return { data: paginated, hasMore };
+    });
   }
 
   static async getAllSales(): Promise<Sale[]> {
-    return [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
+    const sales = this.getLocal<Sale[]>(KEYS.SALES, []);
+    return sales.sort((a, b) => b.createdAt - a.createdAt);
   }
 
   static async saveSale(sale: Sale): Promise<void> {
-    const ownerUserId = sale.ownerUserId || this.cache.currentUser?.id;
-    const updatedSale = { ...sale, ownerUserId };
-    this.cache.sales.push(updatedSale);
-    this.logAudit('SALE_CREATE', 'sale', sale.id, {
-      customerName: sale.customerName,
-      milkType: sale.milkType,
-      liters: sale.liters,
-      totalAmount: sale.totalAmount,
-      paymentType: sale.paymentType,
-      paymentStatus: sale.paymentStatus,
-    });
-    await saveSaleApi(updatedSale).catch((err) => console.error('[Repo] Sale save failed:', err));
+    // Save locally
+    const local = this.getLocal<Sale[]>(KEYS.SALES, []);
+    local.push(sale);
+    this.saveLocal(KEYS.SALES, local);
+
+    // Sync in background
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async () => {
+        await setDoc(doc(db!, 'sales', sale.id), sale);
+      }).catch(err => console.error('[Repo] Save sale Firestore failed:', err));
+    }
   }
 
   static async deleteSale(id: string): Promise<void> {
-    this.cache.sales = this.cache.sales.filter((s) => s.id !== id);
-    this.logAudit('SALE_DELETE', 'sale', id);
-    await deleteSaleApi(id).catch((err) => console.error('[Repo] Sale delete failed:', err));
+    // Delete locally
+    let local = this.getLocal<Sale[]>(KEYS.SALES, []);
+    local = local.filter(s => s.id !== id);
+    this.saveLocal(KEYS.SALES, local);
+
+    // Delete in background
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async () => {
+        await deleteDoc(doc(db!, 'sales', id));
+      }).catch(err => console.error('[Repo] Delete sale Firestore failed:', err));
+    }
   }
 
   static async markSaleAsPaid(id: string, paymentType: string): Promise<void> {
-    const idx = this.cache.sales.findIndex((s) => s.id === id);
-    if (idx === -1) return;
-    this.cache.sales[idx] = { ...this.cache.sales[idx], paymentStatus: 'PAID', paymentType, updatedAt: Date.now() };
-    this.logAudit('SALE_PAY', 'sale', id, { paymentType });
-    await markSalePaidApi(id, paymentType).catch((err) => console.error('[Repo] Mark paid failed:', err));
-  }
+    const local = this.getLocal<Sale[]>(KEYS.SALES, []);
+    const idx = local.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      local[idx].paymentStatus = 'PAID';
+      local[idx].paymentType = paymentType;
+      local[idx].updatedAt = Date.now();
+      this.saveLocal(KEYS.SALES, local);
 
-  static getPriceConfigs(): PriceConfig[] {
-    return this.cache.priceConfigs.map((config) => this.withOwnerMeta(config));
-  }
-
-  static async savePriceConfig(milkType: string, newPrice: number, oldMilkType?: string): Promise<void> {
-    if (oldMilkType && oldMilkType !== milkType) {
-      this.cache.priceConfigs = this.cache.priceConfigs.filter((p) => p.milkType !== oldMilkType);
-    }
-    const idx = this.cache.priceConfigs.findIndex((p) => p.milkType === milkType);
-    const oldPrice = idx !== -1 ? this.cache.priceConfigs[idx].currentPrice : 40;
-    const updatedPrice = { milkType, currentPrice: newPrice, updatedAt: Date.now(), ownerUserId: this.cache.currentUser?.id };
-    if (idx !== -1) this.cache.priceConfigs[idx] = updatedPrice;
-    else this.cache.priceConfigs.push(updatedPrice);
-    this.logAudit('PRICE_UPDATE', 'price_config', milkType, { oldPrice, newPrice });
-    try {
-      const result = (await savePriceApi(milkType, newPrice, oldMilkType, this.cache.currentUser?.id)) as { updatedPrice: PriceConfig; log: PriceLog };
-      if (result?.updatedPrice) {
-        const pIdx = this.cache.priceConfigs.findIndex((p) => p.milkType === milkType);
-        if (pIdx !== -1) this.cache.priceConfigs[pIdx] = result.updatedPrice;
+      // Sync in background
+      if (isFirebaseConfigured && db) {
+        LoadBalancer.execute(async () => {
+          await setDoc(doc(db!, 'sales', id), {
+            paymentStatus: 'PAID',
+            paymentType: paymentType,
+            updatedAt: Date.now()
+          }, { merge: true });
+        }).catch(err => console.error('[Repo] Mark as paid Firestore failed:', err));
       }
-      if (result?.log) this.cache.priceLogs.push(result.log);
-    } catch (err) {
-      console.error('[Repo] Price save failed:', err);
     }
   }
 
-  static async deletePriceConfig(milkType: string): Promise<void> {
-    this.cache.priceConfigs = this.cache.priceConfigs.filter((p) => p.milkType !== milkType);
-    this.logAudit('PRICE_DELETE', 'price_config', milkType);
-    try {
-      await deletePriceApi(milkType, this.cache.currentUser?.id);
-    } catch (err) {
-      console.error('[Repo] Price delete failed:', err);
+  // --- PRICE CONFIGURATION ---
+  static getPriceConfigs(): PriceConfig[] {
+    const defaultPrices: PriceConfig[] = [
+      { milkType: 'Cow Milk', currentPrice: 42.0, updatedAt: Date.now() },
+      { milkType: 'Buffalo Milk', currentPrice: 58.0, updatedAt: Date.now() },
+      { milkType: 'A2 Milk', currentPrice: 75.0, updatedAt: Date.now() }
+    ];
+    return this.getLocal<PriceConfig[]>(KEYS.PRICES, defaultPrices);
+  }
+
+  static async savePriceConfig(milkType: string, newPrice: number): Promise<void> {
+    const local = this.getPriceConfigs();
+    const idx = local.findIndex(p => p.milkType === milkType);
+    const oldPrice = idx !== -1 ? local[idx].currentPrice : 40.0;
+    
+    const updatedPrice = { milkType, currentPrice: newPrice, updatedAt: Date.now() };
+    if (idx !== -1) {
+      local[idx] = updatedPrice;
+    } else {
+      local.push(updatedPrice);
+    }
+    this.saveLocal(KEYS.PRICES, local);
+
+    // Save Price Log
+    const logs = this.getLocal<PriceLog[]>(KEYS.PRICELOGS, []);
+    const newLog: PriceLog = {
+      id: Math.random().toString(36).substr(2, 9),
+      milkType,
+      oldPrice,
+      newPrice,
+      timestamp: Date.now()
+    };
+    logs.push(newLog);
+    this.saveLocal(KEYS.PRICELOGS, logs);
+
+    // Sync configs to Firestore
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async () => {
+        await setDoc(doc(db!, 'price_configs', milkType), updatedPrice);
+        await setDoc(doc(db!, 'price_logs', newLog.id), newLog);
+      }).catch(err => console.error('[Repo] Sync prices to Firestore failed:', err));
     }
   }
 
   static getPriceLogs(): PriceLog[] {
-    return this.cache.priceLogs.map((log) => this.withOwnerMeta(log));
+    return this.getLocal<PriceLog[]>(KEYS.PRICELOGS, []);
   }
 
+  // --- USER & PERMISSIONS ---
   static getUsers(): UserModel[] {
-    return [...this.cache.users];
+    const defaultAdmin: UserModel = {
+      id: 'builtin-admin',
+      name: 'Built-in Admin',
+      email: this.getProfile().emailAddress,
+      role: 'superadmin',
+      subscription: { plan: 'lifetime' },
+      permissions: { canCreate: true, canRead: true, canUpdate: true, canDelete: true, allowedPages: ['*'], canUseSubscription: true, canViewOthers: true },
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    const existing = this.getLocal<UserModel[]>(KEYS.USERS, [defaultAdmin]);
+    // Ensure built-in admin exists
+    if (!existing.find(u => u.id === 'builtin-admin')) {
+      existing.unshift(defaultAdmin);
+      this.saveLocal(KEYS.USERS, existing);
+    }
+    return existing;
   }
 
-  static setUsers(users: UserModel[]): void {
-    this.cache.users = users;
+  static saveUser(user: Partial<UserModel> & { id?: string; email: string; name: string; permissions?: Partial<PermissionSet> }): UserModel {
+    const users = this.getUsers();
+    const id = user.id || Math.random().toString(36).substr(2, 9);
+    const now = Date.now();
+    const base: UserModel = {
+      id,
+      name: user.name,
+      email: user.email,
+      role: (user as any).role || 'user',
+      subscription: (user as any).subscription || null,
+      permissions: {
+        canCreate: user.permissions?.canCreate ?? false,
+        canRead: user.permissions?.canRead ?? true,
+        canUpdate: user.permissions?.canUpdate ?? false,
+        canDelete: user.permissions?.canDelete ?? false,
+        allowedPages: user.permissions?.allowedPages ?? [],
+        canUseSubscription: user.permissions?.canUseSubscription ?? false,
+        canViewOthers: user.permissions?.canViewOthers ?? false
+      },
+      createdAt: now,
+      updatedAt: now
+    };
+
+    const idx = users.findIndex(u => u.id === id || u.email === user.email);
+    if (idx !== -1) {
+      users[idx] = { ...users[idx], ...base, updatedAt: now };
+    } else {
+      users.push(base);
+    }
+    this.saveLocal(KEYS.USERS, users);
+
+    // Sync to Firestore
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async () => {
+        await setDoc(doc(db!, 'users', id), base);
+      }).catch(err => console.error('[Repo] Sync user to Firestore failed:', err));
+    }
+
+    return base;
+  }
+
+  static deleteUser(id: string): void {
+    let users = this.getUsers();
+    users = users.filter(u => u.id !== id && u.email !== this.getProfile().emailAddress);
+    this.saveLocal(KEYS.USERS, users);
+
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async () => {
+        await deleteDoc(doc(db!, 'users', id));
+      }).catch(err => console.error('[Repo] Delete user Firestore failed:', err));
+    }
   }
 
   static setCurrentUser(userIdOrEmail: string | null): void {
     if (!userIdOrEmail) {
-      this.cache.currentUser = null;
+      localStorage.removeItem(KEYS.CURRENT_USER);
       return;
     }
-    this.cache.currentUser = this.cache.users.find((x) => x.id === userIdOrEmail || x.email === userIdOrEmail) || null;
+    const users = this.getUsers();
+    const u = users.find(x => x.id === userIdOrEmail || x.email === userIdOrEmail);
+    if (u) {
+      this.saveLocal(KEYS.CURRENT_USER, u);
+    }
   }
 
   static getCurrentUser(): UserModel | null {
-    return this.cache.currentUser;
+    return this.getLocal<UserModel | null>(KEYS.CURRENT_USER, null);
   }
 
   static getUserById(idOrEmail: string): UserModel | undefined {
-    return this.cache.users.find((u) => u.id === idOrEmail || u.email === idOrEmail);
+    const users = this.getUsers();
+    return users.find(u => u.id === idOrEmail || u.email === idOrEmail);
   }
 
+  static updateUserPermissions(idOrEmail: string, perms: Partial<PermissionSet>): void {
+    const users = this.getUsers();
+    const idx = users.findIndex(u => u.id === idOrEmail || u.email === idOrEmail);
+    if (idx === -1) return;
+    users[idx].permissions = { ...users[idx].permissions, ...perms };
+    users[idx].updatedAt = Date.now();
+    this.saveLocal(KEYS.USERS, users);
+
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async () => {
+        await setDoc(doc(db!, 'users', users[idx].id), users[idx], { merge: true });
+      }).catch(err => console.error('[Repo] Update user perms Firestore failed:', err));
+    }
+  }
+
+  // --- MILK STOCK INVENTORY ---
   static getMilkInventories(): MilkInventory[] {
-    return this.cache.inventory.map((inventory) => this.withOwnerMeta(inventory));
+    return this.getLocal<MilkInventory[]>(KEYS.INVENTORY, []);
   }
 
   static async saveMilkInventory(inventory: MilkInventory): Promise<void> {
-    const ownerUserId = inventory.ownerUserId || this.cache.currentUser?.id;
-    const updatedInventory = { ...inventory, ownerUserId };
-    const idx = this.cache.inventory.findIndex((i) => i.dateStr === inventory.dateStr);
-    if (idx !== -1) this.cache.inventory[idx] = updatedInventory;
-    else this.cache.inventory.push(updatedInventory);
-    await saveInventoryApi(updatedInventory).catch((err) => console.error('[Repo] Inventory save failed:', err));
-  }
-
-  static getBillingConfig(): BillingConfig {
-    return normalizeBillingConfig(this.cache.billingConfig);
-  }
-
-  static saveBillingConfig(config: Partial<BillingConfig>, auditDetails?: Record<string, unknown>): BillingConfig {
-    const updated = normalizeBillingConfig({ ...this.getBillingConfig(), ...config, updatedAt: Date.now() });
-    this.cache.billingConfig = updated;
-    this.logAudit('CONFIG_UPDATE', 'billing_config', 'global', auditDetails || { section: 'billing' });
-    saveBillingApi(updated, this.cache.currentUser?.id).catch((err) => console.error('[Repo] Billing save failed:', err));
-    return updated;
-  }
-
-  static getBrandingConfig(): BrandingConfig {
-    if (!this.cache.brandingConfig) {
-      return {
-        bankName: 'Ganga Premium Dairy',
-        systemName: 'Dairy ERP',
-        logo: '/abielan_app_logo.png',
-        address: '123 Dairy Farm Lane, Cooperative Hub',
-        updatedAt: 0,
-      };
+    const local = this.getMilkInventories();
+    const idx = local.findIndex(i => i.dateStr === inventory.dateStr);
+    if (idx !== -1) {
+      local[idx] = inventory;
+    } else {
+      local.push(inventory);
     }
-    return this.cache.brandingConfig;
-  }
+    this.saveLocal(KEYS.INVENTORY, local);
 
-  static async saveBrandingConfig(config: Partial<BrandingConfig>, auditDetails?: Record<string, unknown>): Promise<BrandingConfig> {
-    const updated = { ...this.getBrandingConfig(), ...config, updatedAt: Date.now() };
-    this.cache.brandingConfig = updated;
-    this.logAudit('CONFIG_UPDATE', 'branding_config', 'global', auditDetails || { section: 'branding' });
-    await saveBrandingApi(updated, this.cache.currentUser?.id).catch((err) => console.error('[Repo] Branding save failed:', err));
-    return updated;
-  }
-
-  static getEnabledPaymentMethods() {
-    return this.getBillingConfig().paymentMethods.filter((m) => m.enabled);
-  }
-
-  private static resolveActor(): { userId: string; userName: string; userEmail?: string } {
-    const user = this.cache.currentUser;
-    const profile = this.getProfile();
-    if (user) return { userId: user.id, userName: user.name, userEmail: user.email };
-    return { userId: 'session', userName: profile.ownerName || 'User', userEmail: profile.emailAddress };
-  }
-
-  static logAudit(action: string, resourceType: string, resourceId?: string, details?: Record<string, unknown> | null): AuditLogEntry {
-    const actor = this.resolveActor();
-    const entry: AuditLogEntry = {
-      id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      userId: actor.userId,
-      userName: actor.userName,
-      userEmail: actor.userEmail,
-      action,
-      resourceType,
-      resourceId,
-      details: details || null,
-      createdAt: Date.now(),
-    };
-    this.cache.auditLogs.unshift(entry);
-    this.cache.auditLogs = this.cache.auditLogs.slice(0, 500);
-    logAuditApi(entry).catch((err) => console.error('[Repo] Audit log failed:', err));
-    return entry;
-  }
-
-  static getAuditLogs(options?: { page?: number; limit?: number; search?: string; resourceType?: string }) {
-    const page = options?.page || 1;
-    const limit = options?.limit || 30;
-    let logs = [...this.cache.auditLogs];
-    if (options?.resourceType) logs = logs.filter((l) => l.resourceType === options.resourceType);
-    if (options?.search?.trim()) {
-      const q = options.search.trim().toLowerCase();
-      logs = logs.filter(
-        (l) =>
-          l.action.toLowerCase().includes(q) ||
-          l.resourceType.toLowerCase().includes(q) ||
-          (l.resourceId || '').toLowerCase().includes(q) ||
-          l.userName.toLowerCase().includes(q) ||
-          (l.userEmail || '').toLowerCase().includes(q) ||
-          JSON.stringify(l.details || {}).toLowerCase().includes(q)
-      );
+    // Sync in background
+    if (isFirebaseConfigured && db) {
+      LoadBalancer.execute(async () => {
+        await setDoc(doc(db!, 'milk_inventory', inventory.dateStr), inventory);
+      }).catch(err => console.error('[Repo] Save inventory to Firestore failed:', err));
     }
-    const total = logs.length;
-    const pages = Math.max(1, Math.ceil(total / limit));
-    const start = (page - 1) * limit;
-    return { logs: logs.slice(start, start + limit), total, page, pages };
   }
 
-  static exportAuditLogs(): string {
-    return JSON.stringify(this.cache.auditLogs, null, 2);
-  }
-
+  // --- BATCH SYNC METHOD ---
+  // Syncs all local storage records to Firebase if offline records exist
   static async triggerBatchSync(): Promise<void> {
-    await this.refreshFromServer();
+    if (!isFirebaseConfigured || !db) return;
+    
+    return LoadBalancer.execute(async () => {
+      const batch = writeBatch(db!);
+
+      // Sync Customers
+      const localCust = this.getLocal<Customer[]>(KEYS.CUSTOMERS, []);
+      localCust.forEach(c => {
+        const ref = doc(db!, 'customers', c.id);
+        batch.set(ref, c, { merge: true });
+      });
+
+      // Sync Sales
+      const localSales = this.getLocal<Sale[]>(KEYS.SALES, []);
+      localSales.forEach(s => {
+        const ref = doc(db!, 'sales', s.id);
+        batch.set(ref, s, { merge: true });
+      });
+
+      // Sync Inventories
+      const localInv = this.getLocal<MilkInventory[]>(KEYS.INVENTORY, []);
+      localInv.forEach(i => {
+        const ref = doc(db!, 'milk_inventory', i.dateStr);
+        batch.set(ref, i, { merge: true });
+      });
+
+      await batch.commit();
+      console.log('[Repo] Batch synchronization executed successfully across all collections.');
+    });
   }
 }
 
