@@ -4,7 +4,7 @@
 import React from 'react';
 import { useLanguage } from '@/app/providers';
 import Repository, { Sale } from '@/lib/repository';
-import { hasPageAction } from '@/lib/permissions';
+import { hasPermission } from '@/lib/permissions';
 import { 
   Printer, 
   FileSpreadsheet, 
@@ -31,7 +31,7 @@ export default function InvoiceDetailDialog({
   const { t, language } = useLanguage();
 
   const handleSettle = async (type: 'CASH' | 'UPI' | 'BANK') => {
-    if (!hasPageAction('Bills', 'edit')) return alert('Permission denied');
+    if (!hasPermission('canUpdate')) return alert('Permission denied');
     await Repository.markSaleAsPaid(sale.id, type);
     onClose();
     onPaymentSettled();

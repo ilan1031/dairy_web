@@ -17,22 +17,19 @@ import {
   User,
   Droplet,
   Coins,
-  Calendar,
-  BarChart3
+  Calendar
 } from 'lucide-react';
-import { hasPageAction, canAccessField } from '@/lib/permissions';
-import CowLoading from '@/components/ui/CowLoading';
-
+import { hasPermission } from '@/lib/permissions';
+import RepositoryLib from '@/lib/repository';
+import { getCurrentUser } from '@/lib/permissions';
 
 interface DashboardTabProps {
-  viewAsUserId?: string;
   onNavigateToTab: (index: number) => void;
   onSelectCustomer: (customer: Customer) => void;
   onSettlePayment: (sale: Sale, paymentType: string) => void;
 }
 
 export default function DashboardTab({ 
-  viewAsUserId,
   onNavigateToTab, 
   onSelectCustomer,
   onSettlePayment 
@@ -47,6 +44,8 @@ export default function DashboardTab({
   const [todayRevenue, setTodayRevenue] = useState(0);
   const [todayLiters, setTodayLiters] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [users, setUsers] = useState<any[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [oldPendingInvoices, setOldPendingInvoices] = useState<Sale[]>([]);
 
   const loadData = async () => {
@@ -97,9 +96,16 @@ export default function DashboardTab({
 
   useEffect(() => {
     loadData();
+    // Refresh every 5s for rapid pulse
     const interval = setInterval(loadData, 5000);
     return () => clearInterval(interval);
-  }, [viewAsUserId]);
+  }, []);
+
+  useEffect(() => {
+    setUsers(RepositoryLib.getUsers());
+    const cur = getCurrentUser();
+    setSelectedUserId(cur?.id || null);
+  }, []);
 
   const handleSync = async () => {
     setIsSyncing(true);
@@ -114,26 +120,9 @@ export default function DashboardTab({
   };
 
   const handleSettle = (sale: Sale) => {
-    if (!hasPageAction('Dashboard', 'edit')) return alert('Permission denied');
+    if (!hasPermission('canUpdate')) return alert('Permission denied');
     onSettlePayment(sale, 'CASH');
     loadData();
-  };
-
-  const handleOpenProfileFromSale = (sale: Sale) => {
-    const match = customers.find(
-      c => c.id === sale.customerId || c.name.toLowerCase() === sale.customerName.toLowerCase()
-    );
-    if (match) {
-      onSelectCustomer(match);
-    } else {
-      onSelectCustomer({
-        id: sale.customerId,
-        name: sale.customerName,
-        phone: '',
-        qrPreference: 'UPI',
-        updatedAt: Date.now()
-      });
-    }
   };
 
   const recentSales = sales.slice(0, 5);
@@ -158,6 +147,15 @@ export default function DashboardTab({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '-0.03em' }}>{t('Dairy Hub')}</h1>
+          {hasPermission('canViewOthers') && (
+            <div style={{ marginTop: 6 }}>
+              <label style={{ fontSize: 12, color: 'var(--text-secondary)', marginRight: 8 }}>View as</label>
+              <select value={selectedUserId || ''} onChange={(e) => { const v = e.target.value || null; setSelectedUserId(v); RepositoryLib.setCurrentUser(v); loadData(); }} className="form-input" style={{ display: 'inline-block', width: 220 }}>
+                <option value="">(none)</option>
+                {users.map(u => (<option key={u.id} value={u.id}>{u.name} {u.role === 'superadmin' ? '(Super)' : ''}</option>))}
+              </select>
+            </div>
+          )}
         </div>
         <button 
           className="btn btn-outline" 
@@ -165,7 +163,7 @@ export default function DashboardTab({
           disabled={isSyncing}
           style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 16px', borderRadius: 'var(--radius-sm)' }}
         >
-          {isSyncing ? <CowLoading size="xs" inline /> : <RefreshCw size={14} />}
+          <RefreshCw size={14} className={isSyncing ? 'spin-animation' : ''} />
           <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
             {isSyncing ? t('Syncing') : t('🟢 Synced')}
           </span>
@@ -334,7 +332,7 @@ export default function DashboardTab({
           <button 
             className="btn btn-primary" 
             onClick={() => onNavigateToTab(1)}
-            disabled={!hasPageAction('Sales', 'create')}
+            disabled={!hasPermission('canCreate')}
             style={{ padding: '14px', borderRadius: 'var(--radius-sm)', justifyContent: 'center' }}
           >
             <PlusCircle size={18} />
@@ -344,7 +342,7 @@ export default function DashboardTab({
           <button 
             className="btn btn-secondary" 
             onClick={() => onNavigateToTab(2)}
-            disabled={!hasPageAction('Sales', 'create')}
+            disabled={!hasPermission('canCreate')}
             style={{ padding: '14px', borderRadius: 'var(--radius-sm)', justifyContent: 'center' }}
           >
             <UserPlus size={18} />
@@ -354,21 +352,11 @@ export default function DashboardTab({
           <button 
             className="btn btn-outline" 
             onClick={() => onNavigateToTab(3)}
-            disabled={!hasPageAction('Dashboard', 'edit')}
+            disabled={!hasPermission('canUpdate')}
             style={{ padding: '14px', borderRadius: 'var(--radius-sm)', justifyContent: 'center', borderWidth: '1.5px' }}
           >
             <DollarSign size={18} />
             <span>{t('Collect Cash')}</span>
-          </button>
-
-          <button 
-            className="btn btn-outline" 
-            onClick={() => onNavigateToTab(4)}
-            disabled={!hasPageAction('Reports', 'view')}
-            style={{ padding: '14px', borderRadius: 'var(--radius-sm)', justifyContent: 'center', borderWidth: '1.5px' }}
-          >
-            <BarChart3 size={18} />
-            <span>{t('Reports')}</span>
           </button>
         </div>
       </div>
@@ -390,11 +378,8 @@ export default function DashboardTab({
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {recentSales.map((sale) => (
               <div key={sale.id} className="list-item" style={{ flexWrap: 'wrap', gap: '16px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, cursor: 'pointer' }}
-                  onClick={() => handleOpenProfileFromSale(sale)}
-                  title="Open customer profile"
-                >
-                  <span style={{ fontWeight: 800, fontSize: '1.08rem', color: 'var(--primary-milk)', letterSpacing: '-0.01em' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <span style={{ fontWeight: 800, fontSize: '1.08rem', color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
                     {sale.customerName}
                   </span>
                   <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
@@ -405,11 +390,6 @@ export default function DashboardTab({
                       minute: '2-digit'
                     })}
                   </span>
-                  {sale.ownerName && (
-                    <span style={{ fontSize: '0.78rem', color: 'var(--primary-milk)', fontWeight: 600 }}>
-                      {sale.ownerName}
-                    </span>
-                  )}
                   {sale.location && (
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500 }}>
                       <MapPin size={11} style={{ color: 'var(--primary-milk)' }} /> {sale.location}
@@ -447,6 +427,17 @@ export default function DashboardTab({
           </div>
         )}
       </div>
+
+      {/* Embedded Spinner CSS */}
+      <style jsx global>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .spin-animation {
+          animation: spin 1s linear infinite;
+        }
+      `}</style>
     </div>
   );
 }

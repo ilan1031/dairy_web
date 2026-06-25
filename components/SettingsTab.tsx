@@ -14,25 +14,18 @@ import {
   Layers, 
   Calendar,
   Save,
-  ClipboardList,
-  CreditCard,
-  ChevronRight,
+  ChevronRight
 } from 'lucide-react';
 import InventoryTab from './InventoryTab';
 import AdminSettings from './AdminSettings';
-import BillingControlsEditor from './settings/BillingControlsEditor';
-import BrandingControlsEditor from './settings/BrandingControlsEditor';
-import AuditLogsPanel from './settings/AuditLogsPanel';
-import { hasPermission, isSuperAdminSession, hasPageAction } from '@/lib/permissions';
-import { changePasswordApi } from '@/lib/authApi';
+import { hasPermission } from '@/lib/permissions';
 
 interface SettingsTabProps {
-  viewAsUserId?: string;
   onSuccessToast: () => void;
   onLogout: () => void;
 }
 
-export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: SettingsTabProps) {
+export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabProps) {
   const { t, language, setLanguage } = useLanguage();
   const { isLightTheme, setLightTheme } = useTheme();
 
@@ -41,43 +34,32 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
   const [oName, setOName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [currentPass, setCurrentPass] = useState('');
-  const [newPass, setNewPass] = useState('');
+  const [pass, setPass] = useState('');
 
+  // Sub-view trigger for Inventory
   const [showInventory, setShowInventory] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
-  const [showBillingControls, setShowBillingControls] = useState(false);
-  const [showBranding, setShowBranding] = useState(false);
-  const [showAuditLogs, setShowAuditLogs] = useState(false);
 
+  // Register Customer Profile Ledger (mobile alignment)
   const [registerName, setRegisterName] = useState('');
   const [registerPhone, setRegisterPhone] = useState('');
   const [qrPreferenceChoice, setQrPreferenceChoice] = useState('UPI');
 
-  const [isCommunityEnabled, setIsCommunityEnabled] = useState(false);
-
   useEffect(() => {
-    Repository.ensureReady().then(() => {
-      const profile = Repository.getProfile();
-      setBName(profile.businessName);
-      setOName(profile.ownerName);
-      setPhone(profile.mobileNumber);
-      setEmail(profile.emailAddress);
-      setIsCommunityEnabled(localStorage.getItem('dairy_community_enabled') === 'true');
-    }).catch(console.error);
-  }, [viewAsUserId]);
+    const profile = Repository.getProfile();
+    setBName(profile.businessName);
+    setOName(profile.ownerName);
+    setPhone(profile.mobileNumber);
+    setEmail(profile.emailAddress);
+    
+    // Unmask password in state from localStorage
+    const savedPass = localStorage.getItem('dairy_raw_password') || 'SuperAdmin_123';
+    setPass(savedPass);
+  }, []);
 
-  const handleSaveAppearance = async () => {
-    if (!hasPageAction('Settings', 'edit')) return alert('Permission denied');
-    if (!window.confirm(t('Are you sure you want to save appearance settings?'))) return;
-
-    Repository.saveProfile({ isLightTheme, language });
-    onSuccessToast();
-  };
-
-  const handleUpdateProfile = async (e: React.FormEvent) => {
+  const handleUpdateProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hasPageAction('Settings', 'edit')) return alert('Permission denied');
+    if (!hasPermission('canUpdate')) return alert('Permission denied');
     if (!window.confirm(t('Are you sure you want to save your profile settings?'))) return;
 
     Repository.saveProfile({
@@ -86,23 +68,13 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
       mobileNumber: phone,
       emailAddress: email
     });
-
-    if (newPass && newPass.length >= 6) {
-      try {
-        await changePasswordApi({ currentPassword: currentPass, newPassword: newPass });
-        setCurrentPass('');
-        setNewPass('');
-      } catch (err) {
-        alert(err instanceof Error ? err.message : 'Password change failed');
-        return;
-      }
-    }
-
+    // Save plain password in localStorage (non-masked state)
+    localStorage.setItem('dairy_raw_password', pass);
     onSuccessToast();
   };
 
   const handleAddCustomer = async () => {
-    if (!hasPageAction('Profiles', 'create')) return alert('Permission denied');
+    if (!hasPermission('canCreate')) return alert('Permission denied');
     if (!registerName.trim()) return;
 
     await Repository.saveCustomer({
@@ -118,35 +90,27 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
     onSuccessToast();
   };
 
-  const handleBackup = async () => {
-    try {
-      await Repository.ensureReady();
-      const backupData = Repository.exportSnapshot();
-      const str = JSON.stringify(backupData, null, 2);
-      const blob = new Blob([str], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `DairySync_Backup_${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      onSuccessToast();
-    } catch {
-      alert('Backup failed. Ensure you are logged in and the API is running.');
-    }
-  };
+  const handleBackup = () => {
+    // Standard json export
+    const backupData = {
+      customers: localStorage.getItem('dairy_customers') || '[]',
+      sales: localStorage.getItem('dairy_sales') || '[]',
+      prices: localStorage.getItem('dairy_prices') || '[]',
+      priceLogs: localStorage.getItem('dairy_price_logs') || '[]',
+      inventory: localStorage.getItem('dairy_inventory') || '[]',
+      profile: localStorage.getItem('dairy_profile') || '{}'
+    };
 
-  const parseBackupField = <T,>(value: unknown, fallback: T): T => {
-    if (value == null) return fallback;
-    if (typeof value === 'string') {
-      try {
-        return JSON.parse(value) as T;
-      } catch {
-        return fallback;
-      }
-    }
-    return value as T;
+    const str = JSON.stringify(backupData);
+    const blob = new Blob([str], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `DairySync_Backup_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    onSuccessToast();
   };
 
   const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,30 +118,23 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
-        const raw = JSON.parse(event.target?.result as string);
-        const payload = {
-          profile: parseBackupField(raw.profile, null),
-          customers: parseBackupField(raw.customers, []),
-          sales: parseBackupField(raw.sales, []),
-          priceConfigs: parseBackupField(raw.prices || raw.priceConfigs, []),
-          priceLogs: parseBackupField(raw.priceLogs, []),
-          inventory: parseBackupField(raw.inventory, []),
-          users: parseBackupField(raw.users, []),
-          billingConfig: parseBackupField(raw.billingConfig, null),
-          brandingConfig: parseBackupField(raw.brandingConfig, null),
-          auditLogs: parseBackupField(raw.auditLogs, []),
-        };
-        if (!payload.profile) {
-          alert('Invalid backup file — profile missing.');
-          return;
+        const backup = JSON.parse(event.target?.result as string);
+        if (backup.profile) {
+          localStorage.setItem('dairy_customers', backup.customers);
+          localStorage.setItem('dairy_sales', backup.sales);
+          localStorage.setItem('dairy_prices', backup.prices);
+          localStorage.setItem('dairy_price_logs', backup.priceLogs);
+          localStorage.setItem('dairy_inventory', backup.inventory);
+          localStorage.setItem('dairy_profile', backup.profile);
+          alert('Ledger restored successfully! Reloading...');
+          window.location.reload();
+        } else {
+          alert('Invalid backup file structure.');
         }
-        await Repository.importSnapshot(payload);
-        alert('Ledger restored from backup.');
-        window.location.reload();
-      } catch {
-        alert('Failed to restore backup. Check file format and API connection.');
+      } catch (err) {
+        alert('Failed to parse backup file.');
       }
     };
     reader.readAsText(file);
@@ -187,7 +144,6 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
   if (showInventory) {
     return (
       <InventoryTab 
-        viewAsUserId={viewAsUserId}
         onBack={() => {
           setShowInventory(false);
           onSuccessToast();
@@ -204,41 +160,6 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
           onSuccessToast();
         }}
         onSuccessToast={onSuccessToast}
-      />
-    );
-  }
-
-  if (showBillingControls) {
-    return (
-      <BillingControlsEditor
-        onBack={() => {
-          setShowBillingControls(false);
-          onSuccessToast();
-        }}
-        onSuccessToast={onSuccessToast}
-      />
-    );
-  }
-
-  if (showBranding) {
-    return (
-      <BrandingControlsEditor
-        onBack={() => {
-          setShowBranding(false);
-          onSuccessToast();
-        }}
-        onSuccessToast={onSuccessToast}
-      />
-    );
-  }
-
-  if (showAuditLogs) {
-    return (
-      <AuditLogsPanel
-        onBack={() => {
-          setShowAuditLogs(false);
-          onSuccessToast();
-        }}
       />
     );
   }
@@ -303,24 +224,13 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
               </div>
 
               <div className="form-group">
-                <label className="form-label">{t('Current Password')}</label>
+                <label className="form-label">{t('ERP Security Password')}</label>
                 <input 
                   type="password" 
                   className="form-input" 
-                  value={currentPass}
-                  onChange={(e) => setCurrentPass(e.target.value)}
-                  placeholder="Required only when changing password"
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">{t('New Password')}</label>
-                <input 
-                  type="password" 
-                  className="form-input" 
-                  value={newPass}
-                  onChange={(e) => setNewPass(e.target.value)}
-                  placeholder="Leave blank to keep current"
+                  value={pass}
+                  onChange={(e) => setPass(e.target.value)}
+                  required
                 />
               </div>
 
@@ -400,87 +310,6 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
             <ChevronRight size={20} style={{ color: 'var(--text-secondary)' }} />
           </div>
 
-          {/* Billing Controls Navigation Card */}
-          {(hasPageAction('Settings', 'edit') || isSuperAdminSession()) && (
-            <div
-              className="card"
-              onClick={() => setShowBillingControls(true)}
-              style={{ cursor: 'pointer', borderLeft: '4px solid var(--primary-milk)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                <CreditCard size={22} style={{ color: 'var(--primary-milk)' }} />
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '1.05rem' }}>Billing Controls</h4>
-                  <p style={{ margin: '2px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    Payment modes, volume presets &amp; billing form rules
-                  </p>
-                </div>
-              </div>
-              <ChevronRight size={20} style={{ color: 'var(--text-secondary)' }} />
-            </div>
-          )}
-
-          {/* Branding Settings Navigation Card */}
-          {(hasPageAction('Settings', 'edit') || isSuperAdminSession()) && (
-            <div
-              className="card"
-              onClick={() => setShowBranding(true)}
-              style={{ cursor: 'pointer', borderLeft: '4px solid var(--primary-gold)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                <Palette size={22} style={{ color: 'var(--primary-gold)' }} />
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '1.05rem' }}>{t('System Branding')}</h4>
-                  <p style={{ margin: '2px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    {t('Depot logo, custom bank/cooperative name & layout header titles')}
-                  </p>
-                </div>
-              </div>
-              <ChevronRight size={20} style={{ color: 'var(--text-secondary)' }} />
-            </div>
-          )}
-
-          {/* Audit Logs Navigation Card */}
-          {(hasPageAction('Settings', 'view') || isSuperAdminSession()) && (
-            <div
-              className="card"
-              onClick={() => setShowAuditLogs(true)}
-              style={{ cursor: 'pointer', borderLeft: '4px solid var(--organic-green)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                <ClipboardList size={22} style={{ color: 'var(--organic-green)' }} />
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '1.05rem' }}>Audit Logs</h4>
-                  <p style={{ margin: '2px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    Track sales, config changes &amp; user actions
-                  </p>
-                </div>
-              </div>
-              <ChevronRight size={20} style={{ color: 'var(--text-secondary)' }} />
-            </div>
-          )}
-
-          {/* Premium Community Owner Dashboard (mobile alignment) */}
-          <div className="card" style={{ borderLeft: '4px solid var(--primary-gold)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-              <div>
-                <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>Premium Community Owner Dashboard</h4>
-                <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Syncs other verified seller sheets and performs comparison analysis graphs.
-                </p>
-              </div>
-              <input
-                type="checkbox"
-                checked={isCommunityEnabled}
-                onChange={(e) => {
-                  setIsCommunityEnabled(e.target.checked);
-                  localStorage.setItem('dairy_community_enabled', e.target.checked ? 'true' : 'false');
-                }}
-                style={{ width: '20px', height: '20px', cursor: 'pointer', flexShrink: 0 }}
-              />
-            </div>
-          </div>
-
           {/* Theme & Language Card */}
           <div className="card">
             <h3 style={{ fontSize: '1.15rem', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -522,11 +351,6 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
                 />
               </div>
             </div>
-
-            <button type="button" className="btn btn-primary" onClick={handleSaveAppearance} style={{ width: '100%', marginTop: '12px' }}>
-              <Save size={16} />
-              {t('Save Appearance')}
-            </button>
           </div>
 
           {/* Local Backup Card */}
@@ -541,7 +365,7 @@ export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: 
                 {t('Local Backup')}
               </button>
 
-              {isSuperAdminSession() ? (
+              {hasPermission('canUpdate') || hasPermission('superadmin') ? (
                 <button className="btn btn-outline" onClick={() => setShowAdmin(true)} style={{ flex: 1 }}>
                   {t('Admin Controls')}
                 </button>

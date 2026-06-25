@@ -1,57 +1,17 @@
 // d:/Gitfiles/dairy/dairy-web/components/ProfilesTab.tsx
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLanguage } from '@/app/providers';
 import Repository, { Customer, Sale } from '@/lib/repository';
-import { hasPageAction } from '@/lib/permissions';
-import { Search, Save, Trash2, ArrowLeft, Check, AlertCircle, Phone, MapPin, FileText, Droplet, Clock, CheckCircle2, ReceiptText, Plus, X, Share2, FileSpreadsheet, Calendar } from 'lucide-react';
-import InvoiceDetailDialog from './InvoiceDetailDialog';
+import { hasPermission } from '@/lib/permissions';
+import { Search, Save, Trash2, ArrowLeft, Check, AlertCircle, Phone, MapPin, FileText, Droplet, Clock, CheckCircle2, ReceiptText, Plus, X } from 'lucide-react';
 
 interface ProfilesTabProps {
-  viewAsUserId?: string;
   onSuccessToast: () => void;
-  initialCustomer?: Customer | null;
-  onInitialCustomerConsumed?: () => void;
 }
 
-function applyHistoryDateFilter(
-  sales: Sale[],
-  dateFilter: string,
-  startDate: string,
-  endDate: string
-): Sale[] {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayMs = todayStart.getTime();
-
-  let filtered = sales;
-  if (dateFilter === 'Today') {
-    filtered = filtered.filter(s => s.createdAt >= todayMs);
-  } else if (dateFilter === 'Week') {
-    filtered = filtered.filter(s => s.createdAt >= todayMs - 7 * 86400000);
-  } else if (dateFilter === 'Month') {
-    filtered = filtered.filter(s => s.createdAt >= todayMs - 30 * 86400000);
-  }
-
-  if (startDate || endDate) {
-    const startMs = startDate ? new Date(startDate).setHours(0, 0, 0, 0) : null;
-    const endMs = endDate ? new Date(endDate).setHours(23, 59, 59, 999) : null;
-    filtered = filtered.filter(s => {
-      if (startMs !== null && s.createdAt < startMs) return false;
-      if (endMs !== null && s.createdAt > endMs) return false;
-      return true;
-    });
-  }
-  return filtered;
-}
-
-export default function ProfilesTab({
-  viewAsUserId,
-  onSuccessToast,
-  initialCustomer,
-  onInitialCustomerConsumed
-}: ProfilesTabProps) {
+export default function ProfilesTab({ onSuccessToast }: ProfilesTabProps) {
   const { t, language } = useLanguage();
   
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -68,17 +28,6 @@ export default function ProfilesTab({
   // Profile detail sub-tab
   const [profileTab, setProfileTab] = useState(0); // 0 = Customer Info, 1 = Purchase History
   const [historyFilter, setHistoryFilter] = useState('All'); // All, Paid, Pending
-  const [historyDateFilter, setHistoryDateFilter] = useState('All'); // All, Today, Week, Month
-  const [historyStartDate, setHistoryStartDate] = useState('');
-  const [historyEndDate, setHistoryEndDate] = useState('');
-
-  // Invoice preview inside profile (mobile alignment)
-  const [selectedInvoiceSale, setSelectedInvoiceSale] = useState<Sale | null>(null);
-
-  // Multi-select mode (long-press on web)
-  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
-  const [selectedSales, setSelectedSales] = useState<Sale[]>([]);
-  const longPressRef = useRef<{ timer?: ReturnType<typeof setTimeout>; fired: boolean }>({ fired: false });
 
   // Quick Add dialogs (mobile alignment)
   const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false);
@@ -104,21 +53,9 @@ export default function ProfilesTab({
 
   useEffect(() => {
     loadData();
-    setSelectedCust(null);
-  }, [viewAsUserId]);
+  }, []);
 
-  // Open profile from dashboard history click
-  useEffect(() => {
-    if (!initialCustomer) return;
-    const cust = customers.find(
-      c => c.id === initialCustomer.id || c.name.toLowerCase() === initialCustomer.name.toLowerCase()
-    );
-    setSelectedCust(cust || initialCustomer);
-    setProfileTab(1);
-    onInitialCustomerConsumed?.();
-  }, [initialCustomer, customers, onInitialCustomerConsumed]);
-
-  if (!hasPageAction('Profiles', 'view')) {
+  if (!hasPermission('canRead')) {
     return (
       <div className="card">
         <h3 style={{ margin: 0 }}>Access Denied</h3>
@@ -136,18 +73,12 @@ export default function ProfilesTab({
       setEditNotes(selectedCust.notes || '');
       setProfileTab(0);
       setHistoryFilter('All');
-      setHistoryDateFilter('All');
-      setHistoryStartDate('');
-      setHistoryEndDate('');
-      setSelectedInvoiceSale(null);
-      setIsMultiSelectMode(false);
-      setSelectedSales([]);
     }
   }, [selectedCust]);
 
   const handleSaveDetails = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hasPageAction('Profiles', 'edit')) return alert('Permission denied');
+    if (!hasPermission('canUpdate')) return alert('Permission denied');
     if (!selectedCust) return;
     if (!window.confirm(t('Are you sure you want to save these customer details?'))) return;
 
@@ -167,7 +98,7 @@ export default function ProfilesTab({
   };
 
   const handleDeleteCustomer = async () => {
-    if (!hasPageAction('Profiles', 'delete')) return alert('Permission denied');
+    if (!hasPermission('canDelete')) return alert('Permission denied');
     if (!selectedCust) return;
     if (confirm(`Are you sure you want to delete ${selectedCust.name}? Historical sales records will be preserved.`)) {
       await Repository.deleteCustomer(selectedCust.id);
@@ -178,7 +109,7 @@ export default function ProfilesTab({
   };
 
   const handleSettleOne = async (sale: Sale) => {
-    if (!hasPageAction('Profiles', 'edit')) return alert('Permission denied');
+    if (!hasPermission('canUpdate')) return alert('Permission denied');
     if (!selectedCust) return;
     if (!confirm(`Settle ₹${sale.totalAmount.toFixed(0)} for ${selectedCust.name}?`)) return;
     await Repository.markSaleAsPaid(sale.id, selectedCust.qrPreference || 'CASH');
@@ -187,7 +118,7 @@ export default function ProfilesTab({
   };
 
   const handleQuickAddCustomer = async () => {
-    if (!hasPageAction('Profiles', 'create')) return alert('Permission denied');
+    if (!hasPermission('canCreate')) return alert('Permission denied');
     if (!quickCustName.trim()) return;
 
     await Repository.saveCustomer({
@@ -206,7 +137,7 @@ export default function ProfilesTab({
   };
 
   const handleQuickAddSale = async () => {
-    if (!hasPageAction('Profiles', 'create')) return alert('Permission denied');
+    if (!hasPermission('canCreate')) return alert('Permission denied');
     if (!selectedCust) return;
     const litersVal = parseFloat(quickSaleLiters);
     if (isNaN(litersVal) || litersVal <= 0) return alert('Please enter a valid quantity');
@@ -237,7 +168,7 @@ export default function ProfilesTab({
   };
 
   const handleSettleAll = async () => {
-    if (!hasPageAction('Profiles', 'edit')) return alert('Permission denied');
+    if (!hasPermission('canUpdate')) return alert('Permission denied');
     if (!selectedCust) return;
     const pendingSales = sales.filter(s => s.customerId === selectedCust.id && s.paymentStatus === 'PENDING');
     if (pendingSales.length === 0) return;
@@ -249,79 +180,6 @@ export default function ProfilesTab({
       onSuccessToast();
       loadData();
     }
-  };
-
-  const exitMultiSelect = () => {
-    setIsMultiSelectMode(false);
-    setSelectedSales([]);
-  };
-
-  const toggleSaleSelection = (sale: Sale) => {
-    setSelectedSales(prev => {
-      const exists = prev.some(s => s.id === sale.id);
-      if (exists) {
-        const next = prev.filter(s => s.id !== sale.id);
-        if (next.length === 0) setIsMultiSelectMode(false);
-        return next;
-      }
-      return [...prev, sale];
-    });
-  };
-
-  const onSalePressStart = (sale: Sale) => {
-    longPressRef.current.fired = false;
-    longPressRef.current.timer = setTimeout(() => {
-      longPressRef.current.fired = true;
-      setIsMultiSelectMode(true);
-      setSelectedSales([sale]);
-    }, 500);
-  };
-
-  const onSalePressEnd = () => {
-    if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
-  };
-
-  const onSaleClick = (sale: Sale) => {
-    if (longPressRef.current.fired) return;
-    if (isMultiSelectMode) {
-      toggleSaleSelection(sale);
-    } else {
-      setSelectedInvoiceSale(sale);
-    }
-  };
-
-  const shareSelectedSales = () => {
-    if (selectedSales.length === 0) return alert('Select at least one record to share.');
-    const profile = Repository.getProfile();
-    const text = `*${selectedCust?.name} — Purchase Summary*\n${profile.businessName}\n-------------------------\n` +
-      selectedSales.map(s =>
-        `${s.milkType}: ${s.liters}L @ ₹${s.ratePerLiter}/L = ₹${s.totalAmount.toFixed(0)} [${s.paymentStatus}]`
-      ).join('\n') +
-      `\n-------------------------\nTotal: ₹${selectedSales.reduce((sum, s) => sum + s.totalAmount, 0).toFixed(0)}`;
-
-    if (navigator.share) {
-      navigator.share({ title: `Sales - ${selectedCust?.name}`, text }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(text);
-      alert('Summary copied to clipboard!');
-    }
-  };
-
-  const exportSelectedSalesCsv = () => {
-    if (selectedSales.length === 0) return alert('Select at least one record to export.');
-    const headers = ['Sale ID', 'Customer', 'Milk Type', 'Liters', 'Rate', 'Total', 'Status', 'Payment Type', 'Date'];
-    const rows = selectedSales.map(s => [
-      s.id, s.customerName, s.milkType, s.liters, s.ratePerLiter, s.totalAmount,
-      s.paymentStatus, s.paymentType, new Date(s.createdAt).toISOString()
-    ]);
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Sales_${selectedCust?.name?.replace(/\s+/g, '_')}_${Date.now()}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
   };
 
   // Calculations
@@ -344,11 +202,9 @@ export default function ProfilesTab({
     const custSales = sales.filter(s => s.customerId === selectedCust.id);
     
     const filteredSales = (() => {
-      let result = custSales;
-      if (historyFilter === 'Paid') result = result.filter(s => s.paymentStatus === 'PAID');
-      if (historyFilter === 'Pending') result = result.filter(s => s.paymentStatus === 'PENDING');
-      result = applyHistoryDateFilter(result, historyDateFilter, historyStartDate, historyEndDate);
-      return result;
+      if (historyFilter === 'Paid') return custSales.filter(s => s.paymentStatus === 'PAID');
+      if (historyFilter === 'Pending') return custSales.filter(s => s.paymentStatus === 'PENDING');
+      return custSales;
     })();
 
     // Sorted newest first
@@ -590,7 +446,7 @@ export default function ProfilesTab({
               </button>
             )}
 
-            {/* Status Filter Pills */}
+            {/* Filter Pills */}
             <div style={{ display: 'flex', gap: '8px' }}>
               {['All', 'Paid', 'Pending'].map(filter => (
                 <button
@@ -610,71 +466,6 @@ export default function ProfilesTab({
               ))}
             </div>
 
-            {/* Date Filter (mobile alignment) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Calendar size={14} style={{ color: 'var(--primary-milk)' }} />
-                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Date Range</span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {['All', 'Today', 'Week', 'Month'].map(df => (
-                  <button
-                    key={df}
-                    onClick={() => {
-                      setHistoryDateFilter(df);
-                      if (df !== 'All') {
-                        setHistoryStartDate('');
-                        setHistoryEndDate('');
-                      }
-                    }}
-                    style={{
-                      padding: '6px 14px', borderRadius: '16px', cursor: 'pointer', fontWeight: 700,
-                      fontSize: '0.78rem', fontFamily: 'inherit', border: 'none',
-                      backgroundColor: historyDateFilter === df && !historyStartDate && !historyEndDate
-                        ? 'var(--primary-milk)' : 'var(--input-bg)',
-                      color: historyDateFilter === df && !historyStartDate && !historyEndDate
-                        ? '#FFFFFF' : 'var(--text-secondary)',
-                    }}
-                  >
-                    {df === 'All' ? 'All Dates' : t(df)}
-                  </button>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <div style={{ flex: 1 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>From Date</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={historyStartDate}
-                    onChange={(e) => {
-                      setHistoryStartDate(e.target.value);
-                      if (e.target.value) setHistoryDateFilter('Custom');
-                    }}
-                    style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>To Date</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={historyEndDate}
-                    onChange={(e) => {
-                      setHistoryEndDate(e.target.value);
-                      if (e.target.value) setHistoryDateFilter('Custom');
-                    }}
-                    style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                  />
-                </div>
-              </div>
-              {isMultiSelectMode && (
-                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--primary-milk)', fontWeight: 600 }}>
-                  Multi-select active — click rows to toggle, or long-press to start
-                </p>
-              )}
-            </div>
-
             {/* Sales List */}
             {sortedSales.length === 0 ? (
               <div style={{
@@ -691,37 +482,18 @@ export default function ProfilesTab({
                   const dateStr = new Date(sale.createdAt).toLocaleString(language === 'ta' ? 'ta-IN' : 'en-IN', {
                     day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
                   });
-                  const isSelected = selectedSales.some(s => s.id === sale.id);
                   return (
                     <div
                       key={sale.id}
-                      onMouseDown={() => onSalePressStart(sale)}
-                      onMouseUp={onSalePressEnd}
-                      onMouseLeave={onSalePressEnd}
-                      onTouchStart={() => onSalePressStart(sale)}
-                      onTouchEnd={onSalePressEnd}
-                      onClick={() => onSaleClick(sale)}
                       style={{
-                        backgroundColor: isSelected ? 'rgba(30,136,229,0.08)' : 'var(--bg-card)',
-                        borderRadius: '16px', padding: '14px 16px',
-                        border: `${isSelected ? '2px' : '1px'} solid ${isSelected ? 'var(--primary-milk)' : sale.paymentStatus === 'PENDING' ? 'rgba(211,47,47,0.2)' : 'var(--border-color)'}`,
+                        backgroundColor: 'var(--bg-card)', borderRadius: '16px', padding: '14px 16px',
+                        border: `1px solid ${sale.paymentStatus === 'PENDING' ? 'rgba(211,47,47,0.2)' : 'var(--border-color)'}`,
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        gap: '12px', boxShadow: 'var(--shadow-sm)', cursor: 'pointer',
-                        userSelect: 'none', WebkitUserSelect: 'none'
+                        gap: '12px', boxShadow: 'var(--shadow-sm)'
                       }}
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {isMultiSelectMode && (
-                            <div style={{
-                              width: '18px', height: '18px', borderRadius: '50%', flexShrink: 0,
-                              border: `2px solid ${isSelected ? 'var(--organic-green)' : 'var(--border-color)'}`,
-                              backgroundColor: isSelected ? 'var(--organic-green)' : 'transparent',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center'
-                            }}>
-                              {isSelected && <Check size={12} color="#FFF" />}
-                            </div>
-                          )}
                           <div style={{
                             width: '10px', height: '10px', borderRadius: '50%',
                             backgroundColor: milkDotColor(sale.milkType), flexShrink: 0
@@ -731,36 +503,32 @@ export default function ProfilesTab({
                           </span>
                         </div>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{dateStr}</span>
-                        <span style={{ fontSize: '0.78rem', color: isMultiSelectMode ? (isSelected ? 'var(--organic-green)' : 'var(--primary-milk)') : 'var(--text-secondary)', fontWeight: isMultiSelectMode ? 600 : 400 }}>
-                          {isMultiSelectMode
-                            ? (isSelected ? 'Selected' : 'Tap to select')
-                            : `₹${sale.ratePerLiter}/L · ${sale.paymentType !== 'NONE' ? sale.paymentType : '—'} · Tap to view bill`}
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                          ₹{sale.ratePerLiter}/L · {sale.paymentType !== 'NONE' ? sale.paymentType : '—'}
                         </span>
                       </div>
 
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
                         <span style={{ fontWeight: 900, fontSize: '1.05rem' }}>₹{sale.totalAmount.toFixed(0)}</span>
-                        {!isMultiSelectMode && (
-                          sale.paymentStatus === 'PAID' ? (
-                            <div style={{
-                              backgroundColor: 'rgba(46,125,50,0.1)', color: 'var(--organic-green)',
-                              borderRadius: '6px', padding: '3px 10px', fontSize: '0.75rem', fontWeight: 700
-                            }}>
-                              Paid
-                            </div>
-                          ) : (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleSettleOne(sale); }}
-                              style={{
-                                backgroundColor: 'rgba(211,47,47,0.08)', color: 'var(--alert-red)',
-                                border: '1px solid rgba(211,47,47,0.25)', borderRadius: '6px',
-                                padding: '3px 10px', fontSize: '0.75rem', fontWeight: 700,
-                                cursor: 'pointer', fontFamily: 'inherit'
-                              }}
-                            >
-                              Collect Payment
-                            </button>
-                          )
+                        {sale.paymentStatus === 'PAID' ? (
+                          <div style={{
+                            backgroundColor: 'rgba(46,125,50,0.1)', color: 'var(--organic-green)',
+                            borderRadius: '6px', padding: '3px 10px', fontSize: '0.75rem', fontWeight: 700
+                          }}>
+                            Paid
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleSettleOne(sale)}
+                            style={{
+                              backgroundColor: 'rgba(211,47,47,0.08)', color: 'var(--alert-red)',
+                              border: '1px solid rgba(211,47,47,0.25)', borderRadius: '6px',
+                              padding: '3px 10px', fontSize: '0.75rem', fontWeight: 700,
+                              cursor: 'pointer', fontFamily: 'inherit'
+                            }}
+                          >
+                            Collect Payment
+                          </button>
                         )}
                       </div>
                     </div>
@@ -771,65 +539,20 @@ export default function ProfilesTab({
           </div>
         )}
 
-        {/* Quick Add Sale FAB (hidden during multi-select) */}
-        {!isMultiSelectMode && (
-          <button
-            onClick={() => setShowQuickAddSale(true)}
-            style={{
-              position: 'fixed', bottom: '80px', right: '24px',
-              width: '56px', height: '56px', borderRadius: '50%',
-              backgroundColor: 'var(--primary-milk)', color: '#FFF', border: 'none',
-              boxShadow: 'var(--shadow-lg)', cursor: 'pointer', zIndex: 100,
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}
-            title="Quick Add Sale"
-          >
-            <Plus size={24} />
-          </button>
-        )}
-
-        {/* Multi-select action bar (mobile alignment) */}
-        {isMultiSelectMode && (
-          <div style={{
-            position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
-            width: 'calc(100% - 32px)', maxWidth: '600px',
-            backgroundColor: 'var(--bg-card)', borderRadius: '16px',
-            border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-lg)',
-            padding: '14px 16px', zIndex: 150, display: 'flex', alignItems: 'center', gap: '12px'
-          }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>
-                {selectedSales.length} selected ({selectedSales.reduce((s, x) => s + x.liters, 0).toFixed(1)}L)
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Paid: ₹{selectedSales.filter(s => s.paymentStatus === 'PAID').reduce((s, x) => s + x.totalAmount, 0).toFixed(0)}
-                {' · '}Due: ₹{selectedSales.filter(s => s.paymentStatus === 'PENDING').reduce((s, x) => s + x.totalAmount, 0).toFixed(0)}
-              </div>
-            </div>
-            <button className="btn btn-outline" onClick={shareSelectedSales} style={{ padding: '8px' }} title="Share">
-              <Share2 size={18} />
-            </button>
-            <button className="btn btn-outline" onClick={exportSelectedSalesCsv} style={{ padding: '8px' }} title="Export CSV">
-              <FileSpreadsheet size={18} />
-            </button>
-            <button className="btn btn-outline" onClick={exitMultiSelect} style={{ padding: '8px', color: 'var(--alert-red)' }} title="Cancel">
-              <X size={18} />
-            </button>
-          </div>
-        )}
-
-        {/* Invoice preview inside profile (mobile alignment) */}
-        {selectedInvoiceSale && (
-          <InvoiceDetailDialog
-            sale={selectedInvoiceSale}
-            onClose={() => setSelectedInvoiceSale(null)}
-            onPaymentSettled={() => {
-              setSelectedInvoiceSale(null);
-              onSuccessToast();
-              loadData();
-            }}
-          />
-        )}
+        {/* Quick Add Sale FAB (mobile alignment) */}
+        <button
+          onClick={() => setShowQuickAddSale(true)}
+          style={{
+            position: 'fixed', bottom: '80px', right: '24px',
+            width: '56px', height: '56px', borderRadius: '50%',
+            backgroundColor: 'var(--primary-milk)', color: '#FFF', border: 'none',
+            boxShadow: 'var(--shadow-lg)', cursor: 'pointer', zIndex: 100,
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}
+          title="Quick Add Sale"
+        >
+          <Plus size={24} />
+        </button>
 
         {showQuickAddSale && (
           <QuickAddSaleDialog
@@ -928,11 +651,6 @@ export default function ProfilesTab({
                   <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     {cust.phone ? `📞 ${cust.phone}` : 'No phone listed'}
                   </div>
-                  {cust.ownerName && (
-                    <div style={{ fontSize: '0.78rem', color: 'var(--primary-milk)', marginTop: '2px', fontWeight: 600 }}>
-                      Owner: {cust.ownerName}
-                    </div>
-                  )}
                   {cust.notes && (
                     <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       📝 {cust.notes}

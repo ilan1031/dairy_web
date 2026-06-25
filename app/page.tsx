@@ -26,14 +26,19 @@ import {
   EyeOff
 } from 'lucide-react';
 
-// Lazy load heavy components to increase speed & prevent hangs
-const DashboardTab = dynamic(() => import('@/components/DashboardTab'), { ssr: false });
-const SalesTab = dynamic(() => import('@/components/SalesTab'), { ssr: false });
-const ProfilesTab = dynamic(() => import('@/components/ProfilesTab'), { ssr: false });
-const BillsTab = dynamic(() => import('@/components/BillsTab'), { ssr: false });
-const ReportsTab = dynamic(() => import('@/components/ReportsTab'), { ssr: false });
-const SettingsTab = dynamic(() => import('@/components/SettingsTab'), { ssr: false });
-const InvoiceDetailDialog = dynamic(() => import('@/components/InvoiceDetailDialog'), { ssr: false });
+// Lazy load heavy components — show CowLoading while JS chunks are being fetched
+const tabLoader = (msg: string) => () => (
+  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '40vh' }}>
+    <CowLoading message={msg} size="md" />
+  </div>
+);
+const DashboardTab = dynamic(() => import('@/components/DashboardTab'), { ssr: false, loading: tabLoader('Loading Dashboard…') });
+const SalesTab = dynamic(() => import('@/components/SalesTab'), { ssr: false, loading: tabLoader('Loading Sales…') });
+const ProfilesTab = dynamic(() => import('@/components/ProfilesTab'), { ssr: false, loading: tabLoader('Loading Profiles…') });
+const BillsTab = dynamic(() => import('@/components/BillsTab'), { ssr: false, loading: tabLoader('Loading Bills…') });
+const ReportsTab = dynamic(() => import('@/components/ReportsTab'), { ssr: false, loading: tabLoader('Loading Reports…') });
+const SettingsTab = dynamic(() => import('@/components/SettingsTab'), { ssr: false, loading: tabLoader('Loading Settings…') });
+const InvoiceDetailDialog = dynamic(() => import('@/components/InvoiceDetailDialog'), { ssr: false, loading: () => null });
 
 export default function Home() {
   return (
@@ -68,6 +73,7 @@ function HomeContent() {
   const [detectIpError, setDetectIpError] = useState('');
 
   const [authError, setAuthError] = useState('');
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastType, setToastType] = useState<ToastType>('success');
@@ -125,6 +131,7 @@ function HomeContent() {
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+    setIsAuthLoading(true);
 
     try {
       const res = await apiPost('/api/auth/login', { email, password });
@@ -151,6 +158,8 @@ function HomeContent() {
       }
     } catch {
       setAuthError('Network error. Failed to authenticate.');
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
@@ -184,6 +193,7 @@ function HomeContent() {
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+    setIsAuthLoading(true);
 
     try {
       const res = await apiPost('/api/auth/register', {
@@ -216,6 +226,8 @@ function HomeContent() {
       }
     } catch {
       setAuthError('Network error. Failed to register.');
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
@@ -379,8 +391,8 @@ function HomeContent() {
                 </div>
               </div>
 
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', height: '48px', borderRadius: '10px', fontSize: '0.95rem', fontWeight: 800, marginTop: '4px' }}>
-                {t('Sign In')}
+              <button type="submit" className="btn btn-primary" disabled={isAuthLoading} style={{ width: '100%', height: '48px', borderRadius: '10px', fontSize: '0.95rem', fontWeight: 800, marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: isAuthLoading ? 0.8 : 1 }}>
+                {isAuthLoading ? <CowLoading size="xs" inline message={t('Signing in…')} /> : t('Sign In')}
               </button>
 
               <button type="button" className="tab-btn" onClick={() => setAuthScreen('REGISTER')} style={{ borderBottom: 'none', marginTop: '4px', fontSize: '0.82rem', color: 'var(--primary-milk)', fontWeight: 600 }}>
@@ -482,8 +494,8 @@ function HomeContent() {
                 </div>
               </div>
 
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', height: '44px', borderRadius: '10px', fontSize: '0.95rem', fontWeight: 800, marginTop: '4px' }}>
-                {t('Register Business')}
+              <button type="submit" className="btn btn-primary" disabled={isAuthLoading} style={{ width: '100%', height: '44px', borderRadius: '10px', fontSize: '0.95rem', fontWeight: 800, marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: isAuthLoading ? 0.8 : 1 }}>
+                {isAuthLoading ? <CowLoading size="xs" inline message={t('Registering…')} /> : t('Register Business')}
               </button>
 
               <button type="button" className="tab-btn" onClick={() => setAuthScreen('LOGIN')} style={{ borderBottom: 'none', marginTop: '4px', fontSize: '0.82rem', color: 'var(--primary-milk)', fontWeight: 600 }}>

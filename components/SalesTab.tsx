@@ -4,9 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '@/app/providers';
 import Repository, { Customer, PriceConfig, Sale } from '@/lib/repository';
-import { BillingConfig, PaymentIconKey } from '@/lib/billingConfig';
-import { hasPageAction, canAccessField } from '@/lib/permissions';
-import { maskCurrency } from '@/lib/fieldMask';
+import { hasPermission } from '@/lib/permissions';
 import { 
   UserPlus, 
   Save, 
@@ -27,18 +25,14 @@ import {
   CreditCard,
   Building,
   Clock,
-  Wallet,
-  QrCode,
-  Check,
+  Check
 } from 'lucide-react';
 
 interface SalesTabProps {
-  viewAsUserId?: string;
-  onSuccessToast: (message?: string, type?: 'success' | 'error' | 'info') => void;
-  onSaleCreated?: (sale: Sale) => void;
+  onSuccessToast: () => void;
 }
 
-export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }: SalesTabProps) {
+export default function SalesTab({ onSuccessToast }: SalesTabProps) {
   const { t } = useLanguage();
 
   // Procurement database states
@@ -56,33 +50,8 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
   const [customPriceInput, setCustomPriceInput] = useState('50');
   const [liters, setLiters] = useState(1.0);
   const [rawLitersInput, setRawLitersInput] = useState('1.0');
-  const [paymentTypeChoice, setPaymentTypeChoice] = useState('CASH');
+  const [paymentTypeChoice, setPaymentTypeChoice] = useState('CASH'); // CASH, UPI, BANK, PENDING
   const [location, setLocation] = useState('Simulated Location (GPS Locked)');
-  const [billingConfig, setBillingConfig] = useState<BillingConfig | null>(null);
-
-  const renderPaymentIcon = (icon: PaymentIconKey, size = 16) => {
-    switch (icon) {
-      case 'credit-card': return <CreditCard size={size} />;
-      case 'building': return <Building size={size} />;
-      case 'clock': return <Clock size={size} />;
-      case 'wallet': return <Wallet size={size} />;
-      case 'qr': return <QrCode size={size} />;
-      default: return <DollarSign size={size} />;
-    }
-  };
-
-  const colorToRgb = (color: string, code: string) => {
-    if (color.startsWith('var(--')) {
-      const map: Record<string, string> = {
-        CASH: '46,125,50',
-        UPI: '255,160,0',
-        BANK: '30,136,229',
-        PENDING: '211,47,47',
-      };
-      return map[code] || '30,136,229';
-    }
-    return '30,136,229';
-  };
 
   // Quick Inline Customer Register
   const [showDirectRegisterPanel, setShowDirectRegisterPanel] = useState(false);
@@ -90,33 +59,18 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
   const [directRegPhone, setDirectRegPhone] = useState('');
   const [directRegQr, setDirectRegQr] = useState('UPI'); // UPI or CASH
 
-  // Confirmation Modals State
-  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
-  const [showAddCustomerConfirm, setShowAddCustomerConfirm] = useState(false);
-
   const loadData = async () => {
     const custs = await Repository.getAllCustomers();
     const prs = Repository.getPriceConfigs();
     const allSales = await Repository.getAllSales();
-    const billing = Repository.getBillingConfig();
     setCustomers(custs);
     setPrices(prs);
     setSales(allSales);
-    setBillingConfig(billing);
-    setLocation(billing.defaultLocation);
-    const enabled = billing.paymentMethods.filter(m => m.enabled);
-    if (enabled.length > 0 && !enabled.find(m => m.code === paymentTypeChoice)) {
-      setPaymentTypeChoice(enabled[0].code);
-    }
-    if (enabled.length > 0 && billing.volumePresets.length > 0) {
-      setLiters(billing.volumePresets[Math.min(2, billing.volumePresets.length - 1)] || 1);
-      setRawLitersInput(String(billing.volumePresets[Math.min(2, billing.volumePresets.length - 1)] || 1));
-    }
   };
 
   useEffect(() => {
     loadData();
-  }, [viewAsUserId]);
+  }, []);
 
   // Compute stock levels left for today (Android alignment)
   const todayStart = new Date();
@@ -185,34 +139,16 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
 
   const finalCostCalculated = liters * rateResolved;
 
-  // Handle save sale (initiator)
-  const handleSaveSale = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!hasPageAction('Sales', 'create')) {
-      onSuccessToast(t('Permission denied'), 'error');
-      return;
-    }
+  // Handle save sale
+  const handleSaveSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!hasPermission('canCreate')) return alert('Permission denied');
     if (!selectedCustomer || liters <= 0 || rateResolved <= 0) return;
 
-    if (billingConfig?.requireLocation && !location.trim()) {
-      onSuccessToast(t('Location is required'), 'error');
-      return;
-    }
+    if (!window.confirm(t('Are you sure you want to save this milk sale?'))) return;
 
-    setShowSaveConfirm(true);
-  };
-
-  // Perform actual save logic after confirmation
-  const executeSaveSale = async () => {
-    if (!selectedCustomer) return;
-    const selectedMethod = billingConfig?.paymentMethods.find(m => m.code === paymentTypeChoice);
-    const paymentStatus = selectedMethod?.marksPending ? 'PENDING' : 'PAID';
-    const resolvedPaymentType = selectedMethod?.marksPending ? 'NONE' : paymentTypeChoice;
-
-    const isNewCustomer = !customers.some((c) => c.id === selectedCustomer.id);
-    if (isNewCustomer) {
-      await Repository.saveCustomer(selectedCustomer);
-    }
+    const paymentStatus = paymentTypeChoice === 'PENDING' ? 'PENDING' : 'PAID';
+    const resolvedPaymentType = paymentTypeChoice === 'PENDING' ? 'NONE' : paymentTypeChoice;
 
     const newSale: Sale = {
       id: Math.random().toString(36).substr(2, 9),
@@ -235,33 +171,23 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
     setSelectedCustomer(null);
     setInputQuery('');
     setSelectedMilkType('Cow Milk');
-    setLiters(billingConfig?.volumePresets[2] || billingConfig?.volumePresets[0] || 1.0);
-    setRawLitersInput(String(billingConfig?.volumePresets[2] || billingConfig?.volumePresets[0] || 1.0));
-    const defaultPay = billingConfig?.paymentMethods.find(m => m.enabled);
-    setPaymentTypeChoice(defaultPay?.code || 'CASH');
-    setLocation(billingConfig?.defaultLocation || 'Simulated Location (GPS Locked)');
+    setLiters(1.0);
+    setRawLitersInput('1.0');
+    setPaymentTypeChoice('CASH');
+    setLocation('Simulated Location (GPS Locked)');
 
-    onSuccessToast(t('Milk sale saved and synced!'), 'success');
+    onSuccessToast();
     loadData();
-    if (onSaleCreated) {
-      onSaleCreated(newSale);
-    }
   };
 
-  // Immediate Quick Add Customer (initiator)
-  const handleQuickAdd = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!hasPageAction('Sales', 'create')) {
-      onSuccessToast(t('Permission denied'), 'error');
-      return;
-    }
+  // Immediate Quick Add Customer
+  const handleQuickAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!hasPermission('canCreate')) return alert('Permission denied');
     if (!directRegName) return;
 
-    setShowAddCustomerConfirm(true);
-  };
+    if (!window.confirm(t('Are you sure you want to add this customer?'))) return;
 
-  // Perform actual quick add logic after confirmation
-  const executeQuickAdd = async () => {
     const newId = Math.random().toString(36).substr(2, 9);
     const newCust: Customer = {
       id: newId,
@@ -282,7 +208,6 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
     setSelectedCustomer(newCust);
     setInputQuery(newCust.name);
     setIsDropdownExpanded(false);
-    onSuccessToast(t('Customer registered successfully!'), 'success');
     loadData();
   };
 
@@ -290,14 +215,6 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
     c.name.toLowerCase().includes(inputQuery.toLowerCase()) ||
     (c.phone && c.phone.includes(inputQuery))
   );
-
-  const enabledPaymentMethods = billingConfig?.paymentMethods.filter(m => m.enabled) || [];
-  const volumePresets = billingConfig?.volumePresets || [0.25, 0.5, 1.0, 2.0, 5.0, 10.0];
-  const allowCustomRate = billingConfig?.allowCustomRate !== false;
-  const showStockWarnings = billingConfig?.showStockWarnings !== false;
-  const maxVolume = billingConfig?.maxVolume || 200;
-  const volumeStep = billingConfig?.volumeStep || 0.25;
-  const requireLocation = billingConfig?.requireLocation !== false;
 
   return (
     <div className="grid-cols-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
@@ -327,11 +244,6 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                     📞 {selectedCustomer.phone || t('No phone registered')}
                   </span>
-                  {selectedCustomer.ownerName && (
-                    <div style={{ fontSize: '0.76rem', color: 'var(--primary-milk)', fontWeight: 600, marginTop: '2px' }}>
-                      Owner: {selectedCustomer.ownerName}
-                    </div>
-                  )}
                   {customerOutstandingDues > 0 && (
                     <div style={{ fontSize: '0.78rem', color: 'var(--alert-red)', fontWeight: 700, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
                       <span>⚠️</span> {t('Outstanding Debt')}: ₹{customerOutstandingDues.toFixed(0)}
@@ -381,14 +293,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
                       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--input-bg)'}
                       onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                     >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <strong style={{ fontSize: '0.9rem' }}>{c.name}</strong>
-                        {c.ownerName && (
-                          <span style={{ fontSize: '0.74rem', color: 'var(--primary-milk)', fontWeight: 600 }}>
-                            Owner: {c.ownerName}
-                          </span>
-                        )}
-                      </div>
+                      <strong style={{ fontSize: '0.9rem' }}>{c.name}</strong>
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{c.phone}</span>
                     </div>
                   ))}
@@ -409,8 +314,9 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
                     } else {
                       const newId = Math.random().toString(36).substr(2, 9);
                       const newC: Customer = { id: newId, name: nextAutoCustomerName, phone: '', qrPreference: 'UPI', updatedAt: Date.now() };
+                      Repository.saveCustomer(newC);
                       setSelectedCustomer(newC);
-                      setInputQuery(newC.name);
+                      loadData();
                     }
                   }}
                   style={{ padding: '4px 10px', fontSize: '0.78rem', borderRadius: '16px', color: 'var(--primary-gold)', borderColor: 'rgba(255,160,0,0.3)', backgroundColor: 'rgba(255,160,0,0.05)' }}
@@ -444,7 +350,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
                     <input 
                       type="tel" 
                       className="form-input" 
-                      placeholder="Logistics Phone (Optional)"
+                      placeholder="Phone Number (Optional)"
                       value={directRegPhone}
                       onChange={(e) => setDirectRegPhone(e.target.value)}
                     />
@@ -533,7 +439,6 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
             })}
 
             {/* Custom Mode */}
-            {allowCustomRate && (
             <div 
               onClick={() => setSelectedMilkType('Custom')}
               style={{
@@ -561,13 +466,12 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
                 </div>
               </div>
             </div>
-            )}
           </div>
 
           {/* Inline custom rate field if Custom selected */}
           {selectedMilkType === 'Custom' && (
             <div style={{ marginTop: '4px' }}>
-              <label className="form-label">{canAccessField('Sales', 'ratePerLiter') ? t('Apply Custom Rate (₹ per Liter)') : t('Rate per Liter')}</label>
+              <label className="form-label">{t('Apply Custom Rate (₹ per Liter)')}</label>
               <input 
                 type="number"
                 className="form-input"
@@ -580,7 +484,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
           )}
 
           {/* Stock Balance warning notice */}
-          {showStockWarnings && selectedMilkType !== 'Custom' && (
+          {selectedMilkType !== 'Custom' && (
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -616,7 +520,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
 
           {/* Preset capsule chips */}
           <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '2px' }}>
-            {volumePresets.map(val => (
+            {[0.25, 0.5, 1.0, 2.0, 5.0, 10.0].map(val => (
               <button 
                 key={val}
                 type="button"
@@ -642,7 +546,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
           <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--border-color)', borderRadius: '16px', backgroundColor: 'var(--bg-card)', padding: '4px', height: '56px' }}>
             <button 
               type="button" 
-              onClick={() => { if (liters > volumeStep) { const nextVal = Math.max(volumeStep, liters - volumeStep); setLiters(nextVal); setRawLitersInput(nextVal.toString()); } }}
+              onClick={() => { if (liters > 0.25) { const nextVal = Math.max(0.25, liters - 0.25); setLiters(nextVal); setRawLitersInput(nextVal.toString()); } }}
               style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: 'var(--input-bg)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary-milk)', cursor: 'pointer' }}
             >
               <Minus size={18} />
@@ -657,7 +561,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
             </div>
             <button 
               type="button" 
-              onClick={() => { const nextVal = Math.min(maxVolume, liters + volumeStep); setLiters(nextVal); setRawLitersInput(nextVal.toString()); }}
+              onClick={() => { const nextVal = Math.min(200.0, liters + 0.25); setLiters(nextVal); setRawLitersInput(nextVal.toString()); }}
               style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: 'var(--primary-milk)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFFFFF', cursor: 'pointer' }}
             >
               <Plus size={18} />
@@ -673,9 +577,13 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            {enabledPaymentMethods.map(m => {
+            {[
+              { code: 'CASH', icon: <DollarSign size={16} />, color: 'var(--organic-green)' },
+              { code: 'UPI', icon: <CreditCard size={16} />, color: 'var(--primary-gold)' },
+              { code: 'BANK', icon: <Building size={16} />, color: 'var(--primary-milk)' },
+              { code: 'PENDING', icon: <Clock size={16} />, color: 'var(--alert-red)' }
+            ].map(m => {
               const isSelected = paymentTypeChoice === m.code;
-              const rgb = colorToRgb(m.color, m.code);
               return (
                 <div 
                   key={m.code}
@@ -684,7 +592,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
                     padding: '12px 14px',
                     borderRadius: '12px',
                     border: isSelected ? `2px solid ${m.color}` : '1px solid var(--border-color)',
-                    backgroundColor: isSelected ? `rgba(${rgb}, 0.08)` : 'var(--bg-card)',
+                    backgroundColor: isSelected ? `rgba(${m.code === 'CASH' ? '46,125,50' : (m.code === 'UPI' ? '255,160,0' : (m.code === 'BANK' ? '30,136,229' : '211,47,47'))}, 0.08)` : 'var(--bg-card)',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -700,12 +608,12 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: isSelected ? m.color : `rgba(${rgb}, 0.12)`,
+                    backgroundColor: isSelected ? m.color : `rgba(${m.code === 'CASH' ? '46,125,50' : (m.code === 'UPI' ? '255,160,0' : (m.code === 'BANK' ? '30,136,229' : '211,47,47'))}, 0.12)`,
                     color: isSelected ? '#FFFFFF' : m.color
                   }}>
-                    {renderPaymentIcon(m.icon)}
+                    {m.icon}
                   </div>
-                  <strong style={{ fontSize: '0.88rem', color: isSelected ? m.color : 'var(--text-secondary)' }}>{t(m.label)}</strong>
+                  <strong style={{ fontSize: '0.88rem', color: isSelected ? m.color : 'var(--text-secondary)' }}>{t(m.code)}</strong>
                 </div>
               );
             })}
@@ -725,7 +633,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
             onChange={(e) => setLocation(e.target.value)}
             style={{ width: '100%' }}
             placeholder={t('Enter society, route, or village name...')}
-            required={requireLocation}
+            required
           />
         </div>
 
@@ -789,7 +697,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
               </div>
 
               <h2 style={{ fontSize: '2.2rem', fontWeight: 950, color: 'var(--primary-milk)', margin: 0, letterSpacing: '-0.04em' }}>
-                {maskCurrency('Sales', 'totalAmount', finalCostCalculated)}
+                ₹{finalCostCalculated.toFixed(0)}
               </h2>
             </div>
           </div>
@@ -798,7 +706,7 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
         {/* SAVE BILLING RECORD CHECKOUT BUTTON */}
         <button 
           onClick={handleSaveSale}
-          disabled={!selectedCustomer || !hasPageAction('Sales', 'create')}
+          disabled={!selectedCustomer || !hasPermission('canCreate')}
           className="btn btn-primary"
           style={{ width: '100%', height: '56px', borderRadius: '16px', fontSize: '1.1rem', fontWeight: 800 }}
         >
@@ -821,73 +729,8 @@ export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }
             </p>
           </div>
         </div>
-      {/* Save Confirmation Modal */}
-      {showSaveConfirm && (
-        <div className="dialog-overlay" style={{ zIndex: 1100 }}>
-          <div className="dialog-content" style={{ maxWidth: '400px', textAlign: 'center', padding: '24px' }}>
-            <h3 style={{ color: 'var(--primary-milk)', marginBottom: '16px', fontSize: '1.25rem' }}>
-              {t('Confirm Sale')}
-            </h3>
-            <p style={{ marginBottom: '24px', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
-              {t('Are you sure you want to save this milk sale?')}
-            </p>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-              <button 
-                className="btn btn-outline" 
-                onClick={() => setShowSaveConfirm(false)}
-                style={{ flex: 1 }}
-              >
-                {t('No')}
-              </button>
-              <button 
-                className="btn btn-primary" 
-                onClick={async () => {
-                  setShowSaveConfirm(false);
-                  await executeSaveSale();
-                }}
-                style={{ flex: 1 }}
-              >
-                {t('Yes')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Customer Confirmation Modal */}
-      {showAddCustomerConfirm && (
-        <div className="dialog-overlay" style={{ zIndex: 1100 }}>
-          <div className="dialog-content" style={{ maxWidth: '400px', textAlign: 'center', padding: '24px' }}>
-            <h3 style={{ color: 'var(--primary-milk)', marginBottom: '16px', fontSize: '1.25rem' }}>
-              {t('Confirm Customer')}
-            </h3>
-            <p style={{ marginBottom: '24px', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
-              {t('Are you sure you want to add this customer?')}
-            </p>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-              <button 
-                className="btn btn-outline" 
-                onClick={() => setShowAddCustomerConfirm(false)}
-                style={{ flex: 1 }}
-              >
-                {t('No')}
-              </button>
-              <button 
-                className="btn btn-primary" 
-                onClick={async () => {
-                  setShowAddCustomerConfirm(false);
-                  await executeQuickAdd();
-                }}
-                style={{ flex: 1 }}
-              >
-                {t('Yes')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
 
     </div>
-  </div>
   );
 }

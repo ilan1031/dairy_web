@@ -4,19 +4,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLanguage } from '@/app/providers';
 import Repository, { Sale } from '@/lib/repository';
-import { hasPageAction } from '@/lib/permissions';
-import { BarChart3, PieChart, TrendingUp, AlertCircle, Droplet, DollarSign, Shield } from 'lucide-react';
+import { hasPermission } from '@/lib/permissions';
+import { BarChart3, PieChart, TrendingUp, AlertCircle, Droplet, DollarSign } from 'lucide-react';
 
-export default function ReportsTab({ viewAsUserId }: { viewAsUserId?: string }) {
+export default function ReportsTab() {
   const { t } = useLanguage();
   const [sales, setSales] = useState<Sale[]>([]);
-  const [intervalFilter, setIntervalFilter] = useState('Today');
-  const [isCommunityActive, setIsCommunityActive] = useState(false);
+  const [intervalFilter, setIntervalFilter] = useState('Today'); // Today, Week, Month, Year, Multi-Year
 
   useEffect(() => {
     Repository.getAllSales().then(setSales).catch(console.error);
-    setIsCommunityActive(localStorage.getItem('dairy_community_enabled') === 'true');
-  }, [viewAsUserId]);
+  }, []);
 
   const filtered = useMemo(() => {
     const now = Date.now();
@@ -61,7 +59,7 @@ export default function ReportsTab({ viewAsUserId }: { viewAsUserId?: string }) 
     return sorted[0] ? `${sorted[0][0]} (₹${sorted[0][1].toFixed(0)})` : 'None';
   }, [filtered]);
 
-  if (!hasPageAction('Reports', 'view')) {
+  if (!hasPermission('canRead')) {
     return (
       <div className="card">
         <h3 style={{ margin: 0 }}>Access Denied</h3>
@@ -218,30 +216,6 @@ export default function ReportsTab({ viewAsUserId }: { viewAsUserId?: string }) 
           </div>
         </div>
       </div>
-
-      {/* Premium Community Panel (mobile alignment) */}
-      {isCommunityActive && (
-        <div className="card" style={{ border: '2px solid var(--primary-gold)', backgroundColor: 'rgba(30,136,229,0.04)' }}>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <Shield size={18} style={{ color: 'var(--primary-gold)' }} />
-            Community Owner Command Panel
-          </h3>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '14px' }}>
-            Overall system report across all registered coop dairy sellers.
-          </p>
-          {[
-            ['Total Verified Sellers', '4'],
-            ['Total Collected Coop Money', '₹14,500'],
-            ['Total Liters Contributed', '420 Liters'],
-            ['Pending Recovery Status', '₹4,100'],
-          ].map(([label, val]) => (
-            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.88rem', borderBottom: '1px solid var(--border-color)' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-              <span style={{ fontWeight: 700 }}>{val}</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Detailed Ledger Table */}
       <div className="card">
