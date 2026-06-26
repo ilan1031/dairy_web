@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Repository, { BrandingConfig } from '@/lib/repository';
 import { hasPageAction, isSuperAdminSession } from '@/lib/permissions';
 import { ArrowLeft, Save, Droplet } from 'lucide-react';
+import CowLoading from '@/components/ui/CowLoading';
 import { useLanguage } from '@/app/providers';
 
 interface BrandingControlsEditorProps {
@@ -64,11 +65,7 @@ export default function BrandingControlsEditor({ onBack, onSuccessToast }: Brand
   };
 
   if (!loaded) {
-    return (
-      <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-        {t('Loading branding config...')}
-      </div>
-    );
+    return <CowLoading message={t('Loading branding config...')} size="md" />;
   }
 
   return (
