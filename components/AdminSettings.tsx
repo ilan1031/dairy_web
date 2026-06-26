@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Repository, { UserModel, PermissionSet } from '@/lib/repository';
 import { isSuperAdminSession } from '@/lib/permissions';
 import type { PermissionAction, PermissionCatalog, CatalogPage, CatalogField, ResourceLimits } from '@/lib/pages';
@@ -403,6 +403,9 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
   const [ipLimitSaving, setIpLimitSaving] = useState(false);
   const [ipLimitError, setIpLimitError] = useState<string | null>(null);
 
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -429,8 +432,9 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
         setSubscriptionDays(String(tokenConfig.subscriptionExpirySeconds / (24 * 3600)));
       }
       setSelectedIds((prev) => prev.filter((id) => mapped.some((u) => u.id === id)));
-      if (selected) {
-        setSelected(mapped.find((u) => u.id === selected.id) || null);
+      const current = selectedRef.current;
+      if (current) {
+        setSelected(mapped.find((u) => u.id === current.id) || null);
       }
     } catch (err) {
       console.error('[AdminSettings] Failed to load:', err);
@@ -439,7 +443,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
     } finally {
       setLoading(false);
     }
-  }, [selected]);
+  }, []);
 
   const handleSaveTokenConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -851,11 +855,10 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
       </div>
 
       <div className="card">
-        {loading ? (
-          <CowLoading message="Loading users..." size="sm" />
-        ) : (
-          <>
-        <h3 style={{ marginTop: 0 }}>Users ({users.length})</h3>
+        <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          Users ({users.length})
+          {loading && <CowLoading size="xs" inline />}
+        </h3>
         {users.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: '0.85rem' }}>
             <input
@@ -1106,8 +1109,6 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
             )}
           </div>
         </div>
-          </>
-        )}
       </div>
     </div>
   );
