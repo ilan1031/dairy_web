@@ -7,8 +7,10 @@ import {
   deleteSaleApi,
   markSalePaidApi,
   savePriceApi,
+  deletePriceApi,
   saveInventoryApi,
   saveBillingApi,
+  saveBrandingApi,
   logAuditApi,
   importDataApi,
   type BootstrapPayload,
@@ -33,6 +35,8 @@ export interface Customer {
   address?: string;
   notes?: string;
   ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   updatedAt: number;
 }
 
@@ -47,6 +51,9 @@ export interface Sale {
   paymentStatus: string;
   paymentType: string;
   location: string;
+  ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -54,6 +61,9 @@ export interface Sale {
 export interface PriceConfig {
   milkType: string;
   currentPrice: number;
+  ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   updatedAt: number;
 }
 
@@ -62,6 +72,9 @@ export interface PriceLog {
   milkType: string;
   oldPrice: number;
   newPrice: number;
+  ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   timestamp: number;
 }
 
@@ -71,6 +84,9 @@ export interface MilkInventory {
   buffaloLiters: number;
   a2Liters: number;
   customStocksRaw: string;
+  ownerUserId?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   updatedAt: number;
 }
 
@@ -82,6 +98,13 @@ export interface Profile {
   signupTimestamp: number;
   isLightTheme: boolean;
   language: string;
+}
+
+export interface TokenConfig {
+  sessionExpirySeconds: number;
+  loginExpirySeconds: number;
+  subscriptionExpirySeconds: number;
+  updatedAt: number;
 }
 
 export interface UserModel {
@@ -97,6 +120,15 @@ export interface UserModel {
   updatedAt: number;
 }
 
+export interface BrandingConfig {
+  bankName: string;
+  systemName: string;
+  logo: string;
+  address: string;
+  ownerUserId?: string;
+  updatedAt: number;
+}
+
 export type { PermissionSet, UserProfile, PermissionCatalog, DataAccessScope, PermissionAction };
 
 interface DataCache {
@@ -108,6 +140,7 @@ interface DataCache {
   inventory: MilkInventory[];
   users: UserModel[];
   billingConfig: BillingConfig | null;
+  brandingConfig: BrandingConfig | null;
   auditLogs: AuditLogEntry[];
   currentUser: UserModel | null;
   permissionCatalog: PermissionCatalog | null;
@@ -125,6 +158,7 @@ function emptyCache(): DataCache {
     inventory: [],
     users: [],
     billingConfig: null,
+    brandingConfig: null,
     auditLogs: [],
     currentUser: null,
     permissionCatalog: null,
@@ -137,6 +171,15 @@ class Repository {
   private static cache: DataCache = emptyCache();
   private static _initialized = false;
   private static _initPromise: Promise<void> | null = null;
+  private static _sessionSuperAdmin = false;
+
+  static isSessionSuperAdmin(): boolean {
+    return this._sessionSuperAdmin;
+  }
+
+  static setSessionSuperAdmin(val: boolean): void {
+    this._sessionSuperAdmin = val;
+  }
 
   static isInitialized(): boolean {
     return this._initialized;
@@ -146,7 +189,12 @@ class Repository {
     return this.initialize();
   }
 
-  static initialize(): Promise<void> {
+  static initialize(selectedUserId?: string | null): Promise<void> {
+    if (selectedUserId !== undefined) {
+      this._initialized = false;
+      this._initPromise = this._doInitialize(selectedUserId);
+      return this._initPromise;
+    }
     if (this._initialized) return Promise.resolve();
     if (this._initPromise) return this._initPromise;
     this._initPromise = this._doInitialize();
@@ -162,6 +210,7 @@ class Repository {
     this.cache.inventory = (data.inventory || []) as unknown as MilkInventory[];
     this.cache.users = (data.users || []) as unknown as UserModel[];
     this.cache.billingConfig = data.billingConfig ? (data.billingConfig as unknown as BillingConfig) : null;
+    this.cache.brandingConfig = data.brandingConfig ? (data.brandingConfig as unknown as BrandingConfig) : null;
     this.cache.auditLogs = (data.auditLogs || []) as unknown as AuditLogEntry[];
     this.cache.permissionCatalog = data.permissionCatalog || null;
     this.cache.isSuperAdmin = Boolean(data.isSuperAdmin);
@@ -196,17 +245,25 @@ class Repository {
   static setSessionUser(user: UserModel | null, isSuperAdmin = false): void {
     this.cache.currentUser = user;
     this.cache.isSuperAdmin = isSuperAdmin;
+    if (isSuperAdmin || user?.role === 'superadmin') {
+      this._sessionSuperAdmin = true;
+    }
   }
 
-  private static async _doInitialize(): Promise<void> {
+  private static async _doInitialize(selectedUserId?: string | null): Promise<void> {
     try {
-      const data = await bootstrapApi();
+      const data = await bootstrapApi(selectedUserId);
       this.applyBootstrap(data);
     } catch (err) {
       console.error('[Repo] Bootstrap from API failed:', err);
       throw err;
     }
     this._initialized = true;
+  }
+
+  static async changeActiveUser(selectedUserId: string | null): Promise<void> {
+    this.clearSession();
+    await this.initialize(selectedUserId);
   }
 
   static async refreshFromServer(): Promise<void> {
@@ -231,6 +288,7 @@ class Repository {
       inventory: this.cache.inventory as unknown as Record<string, unknown>[],
       users: this.cache.users as unknown as Record<string, unknown>[],
       billingConfig: this.cache.billingConfig as unknown as Record<string, unknown> | null,
+      brandingConfig: this.cache.brandingConfig as unknown as Record<string, unknown> | null,
       auditLogs: this.cache.auditLogs as unknown as Record<string, unknown>[],
     };
   }
@@ -263,8 +321,24 @@ class Repository {
     saveProfileApi(updated).catch((err) => console.error('[Repo] Profile save failed:', err));
   }
 
+  private static resolveOwnerMeta(ownerUserId?: string): { ownerName?: string; ownerEmail?: string } {
+    const targetUserId = ownerUserId || this.cache.currentUser?.id;
+    if (!targetUserId) return {};
+    const user = this.cache.users.find((u) => u.id === targetUserId || u.email === targetUserId);
+    if (!user) return {};
+    return {
+      ownerName: user.profile?.displayName || user.name || user.email || undefined,
+      ownerEmail: user.email || undefined,
+    };
+  }
+
+  private static withOwnerMeta<T extends { ownerUserId?: string }>(item: T): T {
+    const ownerMeta = this.resolveOwnerMeta(item.ownerUserId);
+    return { ...item, ...ownerMeta };
+  }
+
   static async getCustomers(batchSize = 20, lastVisibleId?: string): Promise<{ data: Customer[]; hasMore: boolean }> {
-    const all = [...this.cache.customers].sort((a, b) => a.name.localeCompare(b.name));
+    const all = [...this.cache.customers].sort((a, b) => a.name.localeCompare(b.name)).map((customer) => this.withOwnerMeta(customer));
     let startIndex = 0;
     if (lastVisibleId) {
       const index = all.findIndex((c) => c.id === lastVisibleId);
@@ -275,16 +349,18 @@ class Repository {
   }
 
   static async getAllCustomers(): Promise<Customer[]> {
-    return [...this.cache.customers];
+    return this.cache.customers.map((customer) => this.withOwnerMeta(customer));
   }
 
   static async saveCustomer(customer: Customer): Promise<void> {
+    const ownerUserId = customer.ownerUserId || this.cache.currentUser?.id;
+    const updatedCustomer = { ...customer, ownerUserId };
     const idx = this.cache.customers.findIndex((c) => c.id === customer.id);
     const isNew = idx === -1;
-    if (idx !== -1) this.cache.customers[idx] = customer;
-    else this.cache.customers.push(customer);
+    if (idx !== -1) this.cache.customers[idx] = updatedCustomer;
+    else this.cache.customers.push(updatedCustomer);
     this.logAudit(isNew ? 'CREATE' : 'UPDATE', 'customer', customer.id, { name: customer.name, phone: customer.phone });
-    await saveCustomerApi(customer).catch((err) => console.error('[Repo] Customer save failed:', err));
+    await saveCustomerApi(updatedCustomer).catch((err) => console.error('[Repo] Customer save failed:', err));
   }
 
   static async deleteCustomer(id: string): Promise<void> {
@@ -294,7 +370,7 @@ class Repository {
   }
 
   static async getSales(batchSize = 20, lastVisibleId?: string, filterCustomer?: string, filterDateRange?: string): Promise<{ data: Sale[]; hasMore: boolean }> {
-    let filtered = [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt);
+    let filtered = [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
     if (filterCustomer) {
       filtered = filtered.filter((s) => s.customerName.toLowerCase().includes(filterCustomer.toLowerCase()));
     }
@@ -317,11 +393,13 @@ class Repository {
   }
 
   static async getAllSales(): Promise<Sale[]> {
-    return [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt);
+    return [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
   }
 
   static async saveSale(sale: Sale): Promise<void> {
-    this.cache.sales.push(sale);
+    const ownerUserId = sale.ownerUserId || this.cache.currentUser?.id;
+    const updatedSale = { ...sale, ownerUserId };
+    this.cache.sales.push(updatedSale);
     this.logAudit('SALE_CREATE', 'sale', sale.id, {
       customerName: sale.customerName,
       milkType: sale.milkType,
@@ -330,7 +408,7 @@ class Repository {
       paymentType: sale.paymentType,
       paymentStatus: sale.paymentStatus,
     });
-    await saveSaleApi(sale).catch((err) => console.error('[Repo] Sale save failed:', err));
+    await saveSaleApi(updatedSale).catch((err) => console.error('[Repo] Sale save failed:', err));
   }
 
   static async deleteSale(id: string): Promise<void> {
@@ -348,18 +426,21 @@ class Repository {
   }
 
   static getPriceConfigs(): PriceConfig[] {
-    return [...this.cache.priceConfigs];
+    return this.cache.priceConfigs.map((config) => this.withOwnerMeta(config));
   }
 
-  static async savePriceConfig(milkType: string, newPrice: number): Promise<void> {
+  static async savePriceConfig(milkType: string, newPrice: number, oldMilkType?: string): Promise<void> {
+    if (oldMilkType && oldMilkType !== milkType) {
+      this.cache.priceConfigs = this.cache.priceConfigs.filter((p) => p.milkType !== oldMilkType);
+    }
     const idx = this.cache.priceConfigs.findIndex((p) => p.milkType === milkType);
     const oldPrice = idx !== -1 ? this.cache.priceConfigs[idx].currentPrice : 40;
-    const updatedPrice = { milkType, currentPrice: newPrice, updatedAt: Date.now() };
+    const updatedPrice = { milkType, currentPrice: newPrice, updatedAt: Date.now(), ownerUserId: this.cache.currentUser?.id };
     if (idx !== -1) this.cache.priceConfigs[idx] = updatedPrice;
     else this.cache.priceConfigs.push(updatedPrice);
     this.logAudit('PRICE_UPDATE', 'price_config', milkType, { oldPrice, newPrice });
     try {
-      const result = (await savePriceApi(milkType, newPrice)) as { updatedPrice: PriceConfig; log: PriceLog };
+      const result = (await savePriceApi(milkType, newPrice, oldMilkType, this.cache.currentUser?.id)) as { updatedPrice: PriceConfig; log: PriceLog };
       if (result?.updatedPrice) {
         const pIdx = this.cache.priceConfigs.findIndex((p) => p.milkType === milkType);
         if (pIdx !== -1) this.cache.priceConfigs[pIdx] = result.updatedPrice;
@@ -370,8 +451,18 @@ class Repository {
     }
   }
 
+  static async deletePriceConfig(milkType: string): Promise<void> {
+    this.cache.priceConfigs = this.cache.priceConfigs.filter((p) => p.milkType !== milkType);
+    this.logAudit('PRICE_DELETE', 'price_config', milkType);
+    try {
+      await deletePriceApi(milkType, this.cache.currentUser?.id);
+    } catch (err) {
+      console.error('[Repo] Price delete failed:', err);
+    }
+  }
+
   static getPriceLogs(): PriceLog[] {
-    return [...this.cache.priceLogs];
+    return this.cache.priceLogs.map((log) => this.withOwnerMeta(log));
   }
 
   static getUsers(): UserModel[] {
@@ -399,14 +490,16 @@ class Repository {
   }
 
   static getMilkInventories(): MilkInventory[] {
-    return [...this.cache.inventory];
+    return this.cache.inventory.map((inventory) => this.withOwnerMeta(inventory));
   }
 
   static async saveMilkInventory(inventory: MilkInventory): Promise<void> {
+    const ownerUserId = inventory.ownerUserId || this.cache.currentUser?.id;
+    const updatedInventory = { ...inventory, ownerUserId };
     const idx = this.cache.inventory.findIndex((i) => i.dateStr === inventory.dateStr);
-    if (idx !== -1) this.cache.inventory[idx] = inventory;
-    else this.cache.inventory.push(inventory);
-    await saveInventoryApi(inventory).catch((err) => console.error('[Repo] Inventory save failed:', err));
+    if (idx !== -1) this.cache.inventory[idx] = updatedInventory;
+    else this.cache.inventory.push(updatedInventory);
+    await saveInventoryApi(updatedInventory).catch((err) => console.error('[Repo] Inventory save failed:', err));
   }
 
   static getBillingConfig(): BillingConfig {
@@ -417,7 +510,28 @@ class Repository {
     const updated = normalizeBillingConfig({ ...this.getBillingConfig(), ...config, updatedAt: Date.now() });
     this.cache.billingConfig = updated;
     this.logAudit('CONFIG_UPDATE', 'billing_config', 'global', auditDetails || { section: 'billing' });
-    saveBillingApi(updated).catch((err) => console.error('[Repo] Billing save failed:', err));
+    saveBillingApi(updated, this.cache.currentUser?.id).catch((err) => console.error('[Repo] Billing save failed:', err));
+    return updated;
+  }
+
+  static getBrandingConfig(): BrandingConfig {
+    if (!this.cache.brandingConfig) {
+      return {
+        bankName: 'Ganga Premium Dairy',
+        systemName: 'Dairy ERP',
+        logo: '/abielan_app_logo.png',
+        address: '123 Dairy Farm Lane, Cooperative Hub',
+        updatedAt: 0,
+      };
+    }
+    return this.cache.brandingConfig;
+  }
+
+  static async saveBrandingConfig(config: Partial<BrandingConfig>, auditDetails?: Record<string, unknown>): Promise<BrandingConfig> {
+    const updated = { ...this.getBrandingConfig(), ...config, updatedAt: Date.now() };
+    this.cache.brandingConfig = updated;
+    this.logAudit('CONFIG_UPDATE', 'branding_config', 'global', auditDetails || { section: 'branding' });
+    await saveBrandingApi(updated, this.cache.currentUser?.id).catch((err) => console.error('[Repo] Branding save failed:', err));
     return updated;
   }
 

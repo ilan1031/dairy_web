@@ -5,8 +5,8 @@ export const metadata: Metadata = {
   title: "DairySync ERP Ledger",
   description: "Offline-first dairy management ledger and sync engine.",
   icons: {
-    icon: "/abielan_app_logo.png",
-    apple: "/abielan_app_logo.png",
+    icon: [{ url: "/abielan_icon.png", type: "image/png" }],
+    apple: "/abielan_icon.png",
   },
 };
 

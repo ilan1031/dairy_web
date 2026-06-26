@@ -21,6 +21,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { hasPageAction, isSuperAdminSession, getCurrentUser, canAccessField } from '@/lib/permissions';
+import CowLoading from '@/components/ui/CowLoading';
 import RepositoryLib from '@/lib/repository';
 
 
@@ -171,15 +172,6 @@ export default function DashboardTab({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '-0.03em' }}>{t('Dairy Hub')}</h1>
-          {canSwitchUser && canAccessField('Dashboard', 'userFilter') && (
-            <div style={{ marginTop: 6 }}>
-              <label style={{ fontSize: 12, color: 'var(--text-secondary)', marginRight: 8 }}>View as</label>
-              <select value={selectedUserId || ''} onChange={(e) => { const v = e.target.value || null; setSelectedUserId(v); RepositoryLib.setCurrentUser(v); loadData(); }} className="form-input" style={{ display: 'inline-block', width: 220 }}>
-                <option value="">(none)</option>
-                {users.map(u => (<option key={u.id} value={u.id}>{u.name} {u.role === 'superadmin' ? '(Super)' : ''}</option>))}
-              </select>
-            </div>
-          )}
         </div>
         <button 
           className="btn btn-outline" 
@@ -187,7 +179,7 @@ export default function DashboardTab({
           disabled={isSyncing}
           style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 16px', borderRadius: 'var(--radius-sm)' }}
         >
-          <RefreshCw size={14} className={isSyncing ? 'spin-animation' : ''} />
+          {isSyncing ? <CowLoading size="xs" inline /> : <RefreshCw size={14} />}
           <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
             {isSyncing ? t('Syncing') : t('🟢 Synced')}
           </span>
@@ -427,6 +419,11 @@ export default function DashboardTab({
                       minute: '2-digit'
                     })}
                   </span>
+                  {sale.ownerName && (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--primary-milk)', fontWeight: 600 }}>
+                      {sale.ownerName}
+                    </span>
+                  )}
                   {sale.location && (
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500 }}>
                       <MapPin size={11} style={{ color: 'var(--primary-milk)' }} /> {sale.location}
@@ -464,17 +461,6 @@ export default function DashboardTab({
           </div>
         )}
       </div>
-
-      {/* Embedded Spinner CSS */}
-      <style jsx global>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .spin-animation {
-          animation: spin 1s linear infinite;
-        }
-      `}</style>
     </div>
   );
 }

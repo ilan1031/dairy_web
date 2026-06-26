@@ -25,6 +25,7 @@ export default function InventoryTab({ onBack }: InventoryTabProps) {
 
   // Category rates manager
   const [selectedEditType, setSelectedEditType] = useState('Cow Milk');
+  const [editNameInput, setEditNameInput] = useState('Cow Milk');
   const [editPriceInput, setEditPriceInput] = useState('50');
 
   // Add category dialog
@@ -40,10 +41,14 @@ export default function InventoryTab({ onBack }: InventoryTabProps) {
 
     if (prs.length > 0 && !prs.find(p => p.milkType === selectedEditType)) {
       setSelectedEditType(prs[0].milkType);
+      setEditNameInput(prs[0].milkType);
     }
 
     const found = prs.find(p => p.milkType === selectedEditType);
     setEditPriceInput(found ? found.currentPrice.toString() : '50');
+    if (found && editNameInput !== found.milkType) {
+      setEditNameInput(found.milkType);
+    }
 
     // Populate stock inputs from inventory for selected date
     const inventories = Repository.getMilkInventories();
@@ -97,10 +102,34 @@ export default function InventoryTab({ onBack }: InventoryTabProps) {
 
   const handleUpdateBaseRate = async () => {
     if (!hasPageAction('Inventory', 'edit')) return alert('Permission denied');
-    const num = parseFloat(editPriceInput);
-    if (isNaN(num)) return;
-    await Repository.savePriceConfig(selectedEditType, num);
+    const price = parseFloat(editPriceInput);
+    if (isNaN(price)) return alert('Invalid price input');
+    if (!editNameInput.trim()) return alert('Category name required');
+
+    await Repository.savePriceConfig(editNameInput.trim(), price, selectedEditType);
+    setSelectedEditType(editNameInput.trim());
     loadData();
+    alert('Category updated successfully!');
+  };
+
+  const handleDeleteCategory = async () => {
+    if (!hasPageAction('Inventory', 'delete')) return alert('Permission denied');
+    if (!confirm(`Delete category "${selectedEditType}"?`)) return;
+
+    await Repository.deletePriceConfig(selectedEditType);
+
+    const prs = Repository.getPriceConfigs().filter(p => p.milkType !== selectedEditType);
+    if (prs.length > 0) {
+      setSelectedEditType(prs[0].milkType);
+      setEditNameInput(prs[0].milkType);
+      setEditPriceInput(prs[0].currentPrice.toString());
+    } else {
+      setSelectedEditType('');
+      setEditNameInput('');
+      setEditPriceInput('');
+    }
+    loadData();
+    alert('Category deleted successfully!');
   };
 
   const handleSaveInventory = async (e: React.FormEvent) => {
@@ -237,6 +266,7 @@ export default function InventoryTab({ onBack }: InventoryTabProps) {
               {categoryList.map(cat => (
                 <button key={cat.milkType} type="button" onClick={() => {
                   setSelectedEditType(cat.milkType);
+                  setEditNameInput(cat.milkType);
                   setEditPriceInput(cat.currentPrice.toString());
                 }}
                   style={{
@@ -252,14 +282,27 @@ export default function InventoryTab({ onBack }: InventoryTabProps) {
           </div>
 
           <div className="form-group">
+            <label className="form-label">Category Name</label>
+            <input type="text" className="form-input" value={editNameInput}
+              onChange={(e) => setEditNameInput(e.target.value)} />
+          </div>
+
+          <div className="form-group">
             <label className="form-label">Base Price (₹/L)</label>
             <input type="number" step="0.1" className="form-input" value={editPriceInput}
               onChange={(e) => setEditPriceInput(e.target.value)} />
           </div>
 
-          <button className="btn btn-primary" onClick={handleUpdateBaseRate} style={{ width: '100%' }}>
-            Update Base Class Rate
-          </button>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+            <button className="btn btn-primary" onClick={handleUpdateBaseRate} style={{ flex: 2 }}>
+              Update Category
+            </button>
+            {categoryList.length > 0 && selectedEditType && (
+              <button className="btn btn-danger" type="button" onClick={handleDeleteCategory} style={{ flex: 1 }}>
+                Delete
+              </button>
+            )}
+          </div>
         </div>
       )}
 

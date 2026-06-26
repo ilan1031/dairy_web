@@ -12,12 +12,326 @@ import {
   deleteUserApi,
   getCatalogApi,
   updateCatalogApi,
+  getTokenConfigApi,
+  updateTokenConfigApi,
+  getIpLimitApi,
+  updateIpLimitApi,
 } from '@/lib/dataApi';
-import { PlusCircle, Users, ArrowLeft, Trash2, Loader2, Shield, Key } from 'lucide-react';
+import { PlusCircle, Users, ArrowLeft, Trash2, Shield, Key, Clock } from 'lucide-react';
+import CowLoading from '@/components/ui/CowLoading';
 
 interface AdminSettingsProps {
   onBack: () => void;
   onSuccessToast?: (message?: string) => void;
+}
+
+interface BulkOperationsProps {
+  selectedIds: string[];
+  users: UserModel[];
+  onClearSelection: () => void;
+  onSuccessToast?: (msg?: string) => void;
+  refresh: () => Promise<void>;
+}
+
+function BulkOperations({ selectedIds, users, onClearSelection, onSuccessToast, refresh }: BulkOperationsProps) {
+  const [saving, setSaving] = useState(false);
+
+  // Bulk Subscription states
+  const [subPlan, setSubPlan] = useState('monthly');
+  const [subExpiresAt, setSubExpiresAt] = useState('');
+  const [subCanUse, setSubCanUse] = useState(true);
+  const [subMessage, setSubMessage] = useState('');
+
+  // Bulk Permissions states
+  const [selectedPages, setSelectedPages] = useState<string[]>([]);
+  const [selectedActions, setSelectedActions] = useState<PermissionAction[]>([]);
+
+  // Bulk Limits states
+  const [maxCust, setMaxCust] = useState('');
+  const [maxSale, setMaxSale] = useState('');
+  const [maxInv, setMaxInv] = useState('');
+  const [allowedMilk, setAllowedMilk] = useState<string[]>([]);
+
+  // Bulk Share states
+  const [shareMode, setShareMode] = useState<'own' | 'all'>('own');
+
+  const handleApplySubscription = async () => {
+    setSaving(true);
+    try {
+      const expiresAt = subExpiresAt ? new Date(subExpiresAt).getTime() : undefined;
+      await Promise.all(
+        selectedIds.map(async (id) => {
+          const u = users.find((x) => x.id === id);
+          if (!u || !u.active) return;
+          const updated: UserModel = {
+            ...u,
+            subscription: {
+              plan: subPlan,
+              expiresAt,
+              dueDate: expiresAt,
+              paymentMessage: subMessage || undefined,
+            },
+            permissions: {
+              ...u.permissions,
+              canUseSubscription: subCanUse,
+            },
+          };
+          await updateUserApi(updated as unknown as Record<string, unknown>);
+        })
+      );
+      onSuccessToast?.('Bulk subscription updated.');
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Bulk update failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApplyPermissions = async () => {
+    if (!selectedPages.length) return alert('Select at least one page');
+    setSaving(true);
+    try {
+      await Promise.all(
+        selectedIds.map(async (id) => {
+          const u = users.find((x) => x.id === id);
+          if (!u || !u.active) return;
+          const perms = { ...u.permissions };
+          const pagePerms = { ...(perms.pagePermissions || {}) };
+          
+          // Merge page keys into allowed pages
+          const allowed = new Set(perms.allowedPages || []);
+          selectedPages.forEach((p) => {
+            allowed.add(p);
+            pagePerms[p] = selectedActions;
+          });
+
+          const updated: UserModel = {
+            ...u,
+            permissions: {
+              ...perms,
+              allowedPages: Array.from(allowed),
+              pagePermissions: pagePerms,
+            },
+          };
+          await updateUserApi(updated as unknown as Record<string, unknown>);
+        })
+      );
+      onSuccessToast?.('Bulk permissions updated.');
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Bulk update failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApplyLimits = async () => {
+    setSaving(true);
+    try {
+      await Promise.all(
+        selectedIds.map(async (id) => {
+          const u = users.find((x) => x.id === id);
+          if (!u || !u.active) return;
+          const updated: UserModel = {
+            ...u,
+            permissions: {
+              ...u.permissions,
+              resourceLimits: {
+                maxCustomers: maxCust.trim() === '' ? null : Number(maxCust),
+                maxSales: maxSale.trim() === '' ? null : Number(maxSale),
+                maxInventory: maxInv.trim() === '' ? null : Number(maxInv),
+                allowedMilkTypes: allowedMilk.length ? allowedMilk : null,
+              },
+            },
+          };
+          await updateUserApi(updated as unknown as Record<string, unknown>);
+        })
+      );
+      onSuccessToast?.('Bulk limits updated.');
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Bulk update failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete all ${selectedIds.length} selected users?`)) return;
+    setSaving(true);
+    try {
+      await Promise.all(selectedIds.map((id) => deleteUserApi(id)));
+      onClearSelection();
+      onSuccessToast?.('Selected users deleted.');
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Bulk delete failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApplySharing = async () => {
+    setSaving(true);
+    try {
+      await Promise.all(
+        selectedIds.map(async (id) => {
+          const u = users.find((x) => x.id === id);
+          if (!u || !u.active) return;
+          const perms = { ...u.permissions };
+          const updated: UserModel = {
+            ...u,
+            permissions: {
+              ...perms,
+              dataAccessScope: {
+                mode: shareMode,
+                sharedUserIds: perms.dataAccessScope?.sharedUserIds || [],
+              },
+              canViewOthers: shareMode === 'all',
+            },
+          };
+          await updateUserApi(updated as unknown as Record<string, unknown>);
+        })
+      );
+      onSuccessToast?.('Bulk data sharing updated.');
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Bulk update failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const togglePageSelection = (pageKey: string) => {
+    setSelectedPages((prev) =>
+      prev.includes(pageKey) ? prev.filter((p) => p !== pageKey) : [...prev, pageKey]
+    );
+  };
+
+  const toggleActionSelection = (action: PermissionAction) => {
+    setSelectedActions((prev) =>
+      prev.includes(action) ? prev.filter((a) => a !== action) : [...prev, action]
+    );
+  };
+
+  const toggleMilkSelection = (milk: string) => {
+    setAllowedMilk((prev) =>
+      prev.includes(milk) ? prev.filter((m) => m !== milk) : [...prev, milk]
+    );
+  };
+
+  const pagesList = ['Dashboard', 'Sales', 'Bills', 'Inventory', 'Profiles', 'Reports', 'Settings'];
+  const actionsList: PermissionAction[] = ['view', 'create', 'edit', 'delete', 'export', 'share', 'exportAll'];
+  const actionLabels: Record<PermissionAction, string> = {
+    view: 'View',
+    create: 'Create',
+    edit: 'Edit',
+    delete: 'Delete',
+    export: 'Export',
+    share: 'Share',
+    exportAll: 'Export All',
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h4 style={{ margin: 0, color: 'var(--primary-milk)' }}>Bulk Operations ({selectedIds.length} selected)</h4>
+        <button className="btn btn-outline" onClick={onClearSelection} style={{ padding: '4px 8px', fontSize: '0.8rem' }}>Clear</button>
+      </div>
+
+      <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+        <label className="form-label" style={{ marginTop: 0, fontWeight: 700 }}>Bulk Subscription &amp; Access</label>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          <select className="form-input" value={subPlan} onChange={(e) => setSubPlan(e.target.value)}>
+            <option value="free">Free</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+            <option value="lifetime">Lifetime</option>
+          </select>
+          <input type="date" className="form-input" value={subExpiresAt} onChange={(e) => setSubExpiresAt(e.target.value)} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <input type="checkbox" checked={subCanUse} onChange={(e) => setSubCanUse(e.target.checked)} />
+          <span style={{ fontSize: '0.85rem' }}>Allow App Access (renew permission)</span>
+        </div>
+        <textarea className="form-input" placeholder="Custom Payment message" rows={2} style={{ marginTop: 8, width: '100%' }} value={subMessage} onChange={(e) => setSubMessage(e.target.value)} />
+        <button className="btn btn-primary" style={{ marginTop: 8, width: '100%' }} onClick={handleApplySubscription} disabled={saving}>
+          Apply Subscription to {selectedIds.length} Users
+        </button>
+      </div>
+
+      <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+        <label className="form-label" style={{ marginTop: 0, fontWeight: 700 }}>Bulk Permissions Matrix</label>
+        <div style={{ fontSize: '0.82rem', fontWeight: 600, marginTop: 6 }}>1. Select Target Pages:</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+          {pagesList.map((p) => {
+            const checked = selectedPages.includes(p);
+            return (
+              <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', border: '1px solid var(--border-color)', borderRadius: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={checked} onChange={() => togglePageSelection(p)} />
+                {p}
+              </label>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: '0.82rem', fontWeight: 600, marginTop: 8 }}>2. Select Actions to Grant:</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+          {actionsList.map((act) => {
+            const checked = selectedActions.includes(act);
+            return (
+              <label key={act} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', border: '1px solid var(--border-color)', borderRadius: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={checked} onChange={() => toggleActionSelection(act)} />
+                {actionLabels[act]}
+              </label>
+            );
+          })}
+        </div>
+        <button className="btn btn-primary" style={{ marginTop: 10, width: '100%' }} onClick={handleApplyPermissions} disabled={saving}>
+          Apply Permissions to {selectedIds.length} Users
+        </button>
+      </div>
+
+      <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+        <label className="form-label" style={{ marginTop: 0, fontWeight: 700 }}>Bulk Data Limits</label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+          <input className="form-input" type="number" min={0} placeholder="Max customers" value={maxCust} onChange={(e) => setMaxCust(e.target.value)} />
+          <input className="form-input" type="number" min={0} placeholder="Max sales" value={maxSale} onChange={(e) => setMaxSale(e.target.value)} />
+        </div>
+        <input className="form-input" type="number" min={0} placeholder="Max inventory entries" style={{ marginTop: 8, width: '100%' }} value={maxInv} onChange={(e) => setMaxInv(e.target.value)} />
+        <div style={{ fontSize: '0.82rem', fontWeight: 600, marginTop: 8 }}>Allowed Milk Categories:</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+          {['Cow Milk', 'Buffalo Milk', 'A2 Milk'].map((milk) => {
+            const checked = allowedMilk.includes(milk);
+            return (
+              <label key={milk} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.8rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={checked} onChange={() => toggleMilkSelection(milk)} />
+                {milk}
+              </label>
+            );
+          })}
+        </div>
+        <button className="btn btn-primary" style={{ marginTop: 10, width: '100%' }} onClick={handleApplyLimits} disabled={saving}>
+          Apply Limits to {selectedIds.length} Users
+        </button>
+      </div>
+
+      <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+        <label className="form-label" style={{ marginTop: 0, fontWeight: 700 }}>Bulk Data Scope Mode</label>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button className={`btn ${shareMode === 'own' ? 'btn-primary' : 'btn-outline'}`} style={{ flex: 1 }} onClick={() => setShareMode('own')}>Own data only</button>
+          <button className={`btn ${shareMode === 'all' ? 'btn-primary' : 'btn-outline'}`} style={{ flex: 1 }} onClick={() => setShareMode('all')}>All users data</button>
+        </div>
+        <button className="btn btn-primary" style={{ marginTop: 10, width: '100%' }} onClick={handleApplySharing} disabled={saving}>
+          Apply Data Sharing to {selectedIds.length} Users
+        </button>
+      </div>
+
+      <button className="btn btn-danger" style={{ width: '100%', marginTop: 8 }} onClick={handleBulkDelete} disabled={saving}>
+        Delete {selectedIds.length} Selected Users
+      </button>
+    </div>
+  );
 }
 
 function toUserModel(raw: Record<string, unknown>): UserModel {
@@ -54,6 +368,8 @@ const ACTION_LABELS: Record<PermissionAction, string> = {
   edit: 'Edit',
   delete: 'Delete',
   export: 'Export',
+  share: 'Share',
+  exportAll: 'Export All',
 };
 
 const MILK_TYPES = ['Cow Milk', 'Buffalo Milk', 'A2 Milk'];
@@ -66,18 +382,37 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
   const [newPassword, setNewPassword] = useState('');
   const [resetPassword, setResetPassword] = useState('');
   const [selected, setSelected] = useState<UserModel | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [catalogEdit, setCatalogEdit] = useState(false);
   const [newPageKey, setNewPageKey] = useState('');
   const [newPageLabel, setNewPageLabel] = useState('');
 
+  // Token Config states
+  const [sessionHours, setSessionHours] = useState('8');
+  const [loginHours, setLoginHours] = useState('24');
+  const [subscriptionDays, setSubscriptionDays] = useState('30');
+  const [tokenConfigSaving, setTokenConfigSaving] = useState(false);
+
+  const [ipQuery, setIpQuery] = useState('');
+  const [ipLimit, setIpLimit] = useState<number | ''>('');
+  const [ipUsage, setIpUsage] = useState<number | null>(null);
+  const [ipLimitLoaded, setIpLimitLoaded] = useState(false);
+  const [ipLimitLoading, setIpLimitLoading] = useState(false);
+  const [ipLimitSaving, setIpLimitSaving] = useState(false);
+  const [ipLimitError, setIpLimitError] = useState<string | null>(null);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [data, cat] = await Promise.all([
+      const [data, cat, tokenConfig] = await Promise.all([
         listUsersApi(),
         getCatalogApi().catch(() => Repository.getPermissionCatalog()),
+        getTokenConfigApi().catch((err) => {
+          console.error('[AdminSettings] Failed to fetch token config:', err);
+          return null;
+        }),
       ]);
       const mapped = (data || []).map(toUserModel);
       setUsers(mapped);
@@ -88,6 +423,12 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
       } else if (Repository.getPermissionCatalog()) {
         setCatalog(Repository.getPermissionCatalog());
       }
+      if (tokenConfig) {
+        setSessionHours(String(tokenConfig.sessionExpirySeconds / 3600));
+        setLoginHours(String(tokenConfig.loginExpirySeconds / 3600));
+        setSubscriptionDays(String(tokenConfig.subscriptionExpirySeconds / (24 * 3600)));
+      }
+      setSelectedIds((prev) => prev.filter((id) => mapped.some((u) => u.id === id)));
       if (selected) {
         setSelected(mapped.find((u) => u.id === selected.id) || null);
       }
@@ -100,9 +441,38 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
     }
   }, [selected]);
 
+  const handleSaveTokenConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTokenConfigSaving(true);
+    try {
+      const sessionExpirySeconds = parseFloat(sessionHours) * 3600;
+      const loginExpirySeconds = parseFloat(loginHours) * 3600;
+      const subscriptionExpirySeconds = parseFloat(subscriptionDays) * 24 * 3600;
+
+      if (Number.isNaN(sessionExpirySeconds) || Number.isNaN(loginExpirySeconds) || Number.isNaN(subscriptionExpirySeconds)) {
+        alert('Invalid expiration time values.');
+        return;
+      }
+
+      await updateTokenConfigApi({
+        sessionExpirySeconds,
+        loginExpirySeconds,
+        subscriptionExpirySeconds,
+      });
+      onSuccessToast?.('Token configurations updated.');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update token config');
+    } finally {
+      setTokenConfigSaving(false);
+    }
+  };
+
   useEffect(() => {
-    refresh();
-  }, []);
+    const timer = window.setTimeout(() => {
+      void refresh();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
 
   const persistUser = async (user: UserModel, password?: string) => {
     setSaving(true);
@@ -293,7 +663,7 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
         <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>
           <Users size={18} style={{ marginRight: 8 }} /> Admin Controls
         </h2>
-        <div>{saving && <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />}</div>
+        <div>{saving && <CowLoading size="xs" inline />}</div>
       </div>
 
       {isSuperAdminSession() && catalog && (
@@ -319,6 +689,155 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
         </div>
       )}
 
+      {isSuperAdminSession() && (
+        <div className="card">
+          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Clock size={16} /> Token Expiration Settings
+          </h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 8 }}>
+            Configure dynamic maximum durations for Session, Login, and Subscription cookies.
+          </p>
+          <form onSubmit={handleSaveTokenConfig} style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Session Token (Hours)</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.01"
+                  className="form-input"
+                  style={{ width: '100%' }}
+                  value={sessionHours}
+                  onChange={(e) => setSessionHours(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Login Token (Hours)</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.01"
+                  className="form-input"
+                  style={{ width: '100%' }}
+                  value={loginHours}
+                  onChange={(e) => setLoginHours(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Subscription Token (Days)</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.01"
+                  className="form-input"
+                  style={{ width: '100%' }}
+                  value={subscriptionDays}
+                  onChange={(e) => setSubscriptionDays(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+              <button type="submit" className="btn btn-primary" disabled={tokenConfigSaving}>
+                {tokenConfigSaving ? <CowLoading size="xs" inline /> : 'Update Expirations'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {isSuperAdminSession() && (
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}><Shield size={16} /> Manage IP Rate Limits</h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 8 }}>
+            Lookup and update the signup limit for a specific IP address.
+          </p>
+        <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
+            <input
+              className="form-input"
+              placeholder="Enter IP address"
+              value={ipQuery}
+              onChange={(e) => setIpQuery(e.target.value.trim())}
+            />
+            <button className="btn btn-outline" onClick={async () => {
+              if (!ipQuery) return setIpLimitError('Enter an IP address to lookup');
+              setIpLimitError(null);
+              setIpLimitLoading(true);
+              try {
+                const info = await getIpLimitApi(ipQuery);
+                setIpLimit(info.limit);
+                setIpUsage(info.count);
+                setIpLimitLoaded(true);
+              } catch (err) {
+                setIpLimitError(err instanceof Error ? err.message : 'Failed to load IP limit');
+                setIpLimitLoaded(false);
+              } finally {
+                setIpLimitLoading(false);
+              }
+            }} disabled={ipLimitLoading}>
+              {ipLimitLoading ? <CowLoading size="xs" inline /> : 'Lookup'}
+            </button>
+          </div>
+
+          {ipLimitLoaded && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Current limit</div>
+                <input
+                  className="form-input"
+                  type="number"
+                  min={1}
+                  value={ipLimit}
+                  onChange={(e) => setIpLimit(e.target.value === '' ? '' : Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Current count</div>
+                <input className="form-input" type="text" value={ipUsage ?? ''} disabled />
+              </div>
+            </div>
+          )}
+
+          {ipLimitError && (
+            <div style={{ color: 'var(--alert-red)', fontSize: '0.88rem' }}>{ipLimitError}</div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button className="btn btn-outline" type="button" onClick={() => {
+              setIpLimitLoaded(false);
+              setIpLimit('');
+              setIpUsage(null);
+              setIpLimitError(null);
+            }}>
+              Reset
+            </button>
+            <button className="btn btn-primary" type="button" onClick={async () => {
+              if (!ipQuery) return setIpLimitError('Enter an IP address to update');
+              if (ipLimit === '' || Number(ipLimit) < 1) return setIpLimitError('Limit must be a positive integer');
+              setIpLimitSaving(true);
+              setIpLimitError(null);
+              try {
+                const updated = await updateIpLimitApi(ipQuery, Number(ipLimit));
+                setIpLimit(updated.limit);
+                setIpUsage(updated.count);
+                setIpLimitLoaded(true);
+                onSuccessToast?.('IP limit updated.');
+              } catch (err) {
+                setIpLimitError(err instanceof Error ? err.message : 'Failed to update IP limit');
+              } finally {
+                setIpLimitSaving(false);
+              }
+            }} disabled={ipLimitSaving}>
+              {ipLimitSaving ? <CowLoading size="xs" inline /> : 'Save Limit'}
+            </button>
+          </div>
+        </div>
+      </div>
+      )}
+
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Create User</h3>
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -332,35 +851,99 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
       </div>
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Users {loading ? '(loading...)' : `(${users.length})`}</h3>
+        {loading ? (
+          <CowLoading message="Loading users..." size="sm" />
+        ) : (
+          <>
+        <h3 style={{ marginTop: 0 }}>Users ({users.length})</h3>
+        {users.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: '0.85rem' }}>
+            <input
+              type="checkbox"
+              checked={selectedIds.length === users.length}
+              ref={(el) => {
+                if (el) {
+                  el.indeterminate = selectedIds.length > 0 && selectedIds.length < users.length;
+                }
+              }}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedIds(users.map((u) => u.id));
+                  setSelected(null);
+                } else {
+                  setSelectedIds([]);
+                  setSelected(null);
+                }
+              }}
+            />
+            <span style={{ fontWeight: 600 }}>Select All ({selectedIds.length} selected)</span>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 280px', minWidth: 260 }}>
-            {users.map((u) => (
-              <div
-                key={u.id}
-                className="list-item"
-                style={{ cursor: 'pointer', borderColor: selected?.id === u.id ? 'var(--primary-milk)' : undefined, opacity: u.active ? 1 : 0.65 }}
-                onClick={() => setSelected(u)}
-              >
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: u.active ? '#e3f2fd' : '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
-                    {u.name?.charAt(0) || '?'}
+            {users.map((u) => {
+              const isChecked = selectedIds.includes(u.id);
+              return (
+                <div
+                  key={u.id}
+                  className="list-item"
+                  style={{ cursor: 'pointer', borderColor: selected?.id === u.id ? 'var(--primary-milk)' : undefined, opacity: u.active ? 1 : 0.65, display: 'flex', gap: 10, alignItems: 'center' }}
+                  onClick={() => {
+                    setSelected(u);
+                    setSelectedIds([u.id]);
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        if (checked) next.add(u.id);
+                        else next.delete(u.id);
+                        const arr = Array.from(next);
+                        if (arr.length === 1) {
+                          setSelected(users.find((x) => x.id === arr[0]) || null);
+                        } else {
+                          setSelected(null);
+                        }
+                        return arr;
+                      });
+                    }}
+                  />
+                  <div style={{ flex: 1, display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: u.active ? '#e3f2fd' : '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                      {u.name?.charAt(0) || '?'}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{u.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{u.email}</div>
+                      {u.profile?.department && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{u.profile.department}</div>}
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{u.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{u.email}</div>
-                    {u.profile?.department && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{u.profile.department}</div>}
-                  </div>
+                  <button className="btn btn-danger" onClick={(e) => { e.stopPropagation(); handleDelete(u.id); }} disabled={saving}>
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-                <button className="btn btn-danger" onClick={(e) => { e.stopPropagation(); handleDelete(u.id); }} disabled={saving}>
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div style={{ flex: '1 1 360px', minWidth: 320 }}>
-            {selected ? (
+            {selectedIds.length > 1 ? (
+              <BulkOperations
+                selectedIds={selectedIds}
+                users={users}
+                onClearSelection={() => {
+                  setSelectedIds([]);
+                  setSelected(null);
+                }}
+                onSuccessToast={onSuccessToast}
+                refresh={refresh}
+              />
+            ) : selected ? (
               <div>
                 <h4 style={{ marginTop: 0 }}>Edit — {selected.name}</h4>
 
@@ -523,6 +1106,8 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
             )}
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

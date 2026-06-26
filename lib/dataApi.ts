@@ -1,5 +1,6 @@
 import { apiPost } from './api';
 import type { PermissionCatalog } from './pages';
+import type { TokenConfig } from './repository';
 
 async function parseJson<T>(res: Response): Promise<T> {
   const json = await res.json();
@@ -18,6 +19,7 @@ export interface BootstrapPayload {
   inventory: Record<string, unknown>[];
   users: Record<string, unknown>[];
   billingConfig: Record<string, unknown> | null;
+  brandingConfig?: Record<string, unknown> | null;
   auditLogs: Record<string, unknown>[];
   permissionCatalog?: PermissionCatalog;
   sessionUser?: Record<string, unknown> | null;
@@ -25,8 +27,8 @@ export interface BootstrapPayload {
   subscriptionStatus?: { blocked: boolean; reason?: string; expiresAt?: number; plan?: string; paymentMessage?: string };
 }
 
-export async function bootstrap(): Promise<BootstrapPayload> {
-  const res = await apiPost('/api/data/bootstrap');
+export async function bootstrap(selectedUserId?: string | null): Promise<BootstrapPayload> {
+  const res = await apiPost('/api/data/bootstrap', { selectedUserId });
   return parseJson(res);
 }
 
@@ -60,8 +62,13 @@ export async function markSalePaidApi(id: string, paymentType: string) {
   return parseJson(res);
 }
 
-export async function savePriceApi(milkType: string, newPrice: number) {
-  const res = await apiPost('/api/data/prices/save', { milkType, newPrice });
+export async function savePriceApi(milkType: string, newPrice: number, oldMilkType?: string, ownerUserId?: string) {
+  const res = await apiPost('/api/data/prices/save', { milkType, newPrice, oldMilkType, ownerUserId });
+  return parseJson(res);
+}
+
+export async function deletePriceApi(milkType: string, ownerUserId?: string) {
+  const res = await apiPost('/api/data/prices/delete', { milkType, ownerUserId });
   return parseJson(res);
 }
 
@@ -70,9 +77,14 @@ export async function saveInventoryApi(inventory: object) {
   return parseJson(res);
 }
 
-export async function saveBillingApi(config: object) {
-  const res = await apiPost('/api/data/billing/save', config);
+export async function saveBillingApi(config: object, ownerUserId?: string) {
+  const res = await apiPost('/api/data/billing/save', { ...config, ownerUserId });
   return parseJson(res);
+}
+
+export async function saveBrandingApi(config: object, ownerUserId?: string) {
+  const res = await apiPost('/api/data/branding/save', { ...config, ownerUserId });
+  return parseJson<Record<string, unknown>>(res);
 }
 
 export async function logAuditApi(entry: object) {
@@ -123,4 +135,30 @@ export async function getCatalogApi() {
 export async function updateCatalogApi(catalog: PermissionCatalog) {
   const res = await apiPost('/api/admin/catalog/update', catalog as unknown as Record<string, unknown>);
   return parseJson<PermissionCatalog>(res);
+}
+
+export async function getTokenConfigApi() {
+  const res = await apiPost('/api/admin/token-config/get');
+  return parseJson<TokenConfig>(res);
+}
+
+export async function updateTokenConfigApi(config: Partial<TokenConfig>) {
+  const res = await apiPost('/api/admin/token-config/update', config);
+  return parseJson<TokenConfig>(res);
+}
+
+export interface IpLimitInfo {
+  ipAddress: string;
+  limit: number;
+  count: number;
+}
+
+export async function getIpLimitApi(ipAddress: string) {
+  const res = await apiPost('/api/admin/ip-limit/get', { ipAddress });
+  return parseJson<IpLimitInfo>(res);
+}
+
+export async function updateIpLimitApi(ipAddress: string, limit: number) {
+  const res = await apiPost('/api/admin/ip-limit/update', { ipAddress, limit });
+  return parseJson<IpLimitInfo>(res);
 }

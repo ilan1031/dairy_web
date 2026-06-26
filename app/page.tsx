@@ -6,11 +6,12 @@ import dynamic from 'next/dynamic';
 import { AppSettingsProvider, useLanguage, useTheme } from './providers';
 import Repository, { Sale, Customer, UserModel } from '@/lib/repository';
 import { apiPost } from '@/lib/api';
-import { whoamiApi, logoutApi } from '@/lib/authApi';
+import { getWhoamiPromise, logoutApi, clearWhoamiPromise } from '@/lib/authApi';
 import { canAccessPage } from '@/lib/permissions';
 import { getSubscriptionStatus } from '@/lib/subscription';
 import AppToast, { ToastType } from '@/components/AppToast';
 import PayNowScreen from '@/components/PayNowScreen';
+import CowLoading from '@/components/ui/CowLoading';
 import { 
   LayoutDashboard, 
   PlusCircle, 
@@ -45,8 +46,10 @@ export default function Home() {
 function HomeContent() {
   const { t, language, setLanguage } = useLanguage();
   const { isLightTheme, toggleTheme } = useTheme();
-  const appLogoPath = process.env.NEXT_PUBLIC_APP_LOGO_PATH || '/abielan_app_logo.png';
   const abielanUrl = process.env.NEXT_PUBLIC_ABIELAN_URL || 'https://www.abielan.in';
+  const branding = Repository.getBrandingConfig();
+  const appLogoPath = branding.logo || '/abielan_app_logo.png';
+  const systemName = branding.systemName || t('Dairy ERP');
 
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -60,6 +63,9 @@ function HomeContent() {
   const [regPhone, setRegPhone] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPass, setRegPass] = useState('');
+  const [detectedIp, setDetectedIp] = useState('');
+  const [detectingIp, setDetectingIp] = useState(false);
+  const [detectIpError, setDetectIpError] = useState('');
 
   const [authError, setAuthError] = useState('');
   const [showToast, setShowToast] = useState(false);
@@ -76,10 +82,18 @@ function HomeContent() {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [pendingProfileCustomer, setPendingProfileCustomer] = useState<Customer | null>(null);
 
+  // Impersonation / View As User State
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [users, setUsers] = useState<UserModel[]>([]);
+  const [isReady, setIsReady] = useState(false);
+
   useEffect(() => {
-    whoamiApi()
+    getWhoamiPromise()
       .then(async (session) => {
-        if (!session.authenticated) return;
+        if (!session.authenticated) {
+          setIsReady(true);
+          return;
+        }
         await Repository.initialize();
         Repository.setSessionUser(
           (session.user as UserModel) || Repository.getCurrentUser(),
@@ -92,9 +106,12 @@ function HomeContent() {
           setSubscriptionBlocked(getSubscriptionStatus().blocked);
         }
         setIsLoggedIn(true);
+        setUsers(Repository.getUsers());
+        setIsReady(true);
       })
       .catch(() => {
         localStorage.removeItem('dairy_is_logged_in');
+        setIsReady(true);
       });
   }, []);
 
@@ -116,6 +133,8 @@ function HomeContent() {
       if (data.success) {
         localStorage.setItem('dairy_is_logged_in', 'true');
         Repository.clearSession();
+        clearWhoamiPromise();
+        setIsReady(false);
         await Repository.initialize();
         Repository.setSessionUser(
           (data.user as UserModel) || Repository.getCurrentUser(),
@@ -124,14 +143,43 @@ function HomeContent() {
         setSubscriptionBlocked(getSubscriptionStatus().blocked);
         Repository.logAudit('LOGIN', 'session', data.profile?.emailAddress || email);
         setIsLoggedIn(true);
+        setUsers(Repository.getUsers());
+        setIsReady(true);
         triggerToast(t('Welcome back! Login successful.'));
       } else {
         setAuthError(data.error || 'Invalid credentials');
       }
-    } catch (err) {
+    } catch {
       setAuthError('Network error. Failed to authenticate.');
     }
   };
+
+  useEffect(() => {
+    if (authScreen !== 'REGISTER' || detectedIp || detectingIp) return;
+
+    const detectIp = async () => {
+      setDetectingIp(true);
+      setDetectIpError('');
+      try {
+        const response = await fetch('https://api.ipify.org?format=json');
+        if (!response.ok) {
+          throw new Error(`IP detection failed: ${response.statusText}`);
+        }
+        const json = await response.json();
+        if (json.ip) {
+          setDetectedIp(String(json.ip));
+        } else {
+          throw new Error('IP address not found');
+        }
+      } catch (err) {
+        setDetectIpError(err instanceof Error ? err.message : 'Unable to detect IP address');
+      } finally {
+        setDetectingIp(false);
+      }
+    };
+
+    void detectIp();
+  }, [authScreen, detectedIp, detectingIp]);
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,12 +192,15 @@ function HomeContent() {
         mobileNumber: regPhone,
         emailAddress: regEmail,
         password: regPass,
+        ...(detectedIp ? { ipAddress: detectedIp } : {}),
       });
       const data = await res.json();
 
       if (data.success) {
         localStorage.setItem('dairy_is_logged_in', 'true');
         Repository.clearSession();
+        clearWhoamiPromise();
+        setIsReady(false);
         await Repository.initialize();
         Repository.setSessionUser(
           (data.user as UserModel) || Repository.getCurrentUser(),
@@ -157,6 +208,8 @@ function HomeContent() {
         );
         setSubscriptionBlocked(getSubscriptionStatus().blocked);
         setIsLoggedIn(true);
+        setUsers(Repository.getUsers());
+        setIsReady(true);
         triggerToast(t('Business registered successfully!'));
       } else {
         setAuthError(data.error || 'Registration failed');
@@ -174,6 +227,7 @@ function HomeContent() {
       /* ignore */
     }
     Repository.clearSession();
+    Repository.setSessionSuperAdmin(false);
     localStorage.removeItem('dairy_is_logged_in');
     setIsLoggedIn(false);
     setActiveTab(0);
@@ -193,6 +247,37 @@ function HomeContent() {
     triggerToast();
   };
 
+  const currentUser = Repository.getCurrentUser();
+  const canSwitchUser =
+    isLoggedIn && (
+      Repository.isSessionSuperAdmin() ||
+      Repository.isSuperAdmin() ||
+      Boolean(currentUser?.permissions?.canViewOthers) ||
+      currentUser?.permissions?.dataAccessScope?.mode === 'all' ||
+      currentUser?.permissions?.dataAccessScope?.mode === 'shared'
+    );
+
+  const handleUserChange = async (userId: string | null) => {
+    setSelectedUserId(userId);
+    setIsReady(false);
+    try {
+      await Repository.changeActiveUser(userId);
+      setUsers(Repository.getUsers());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsReady(true);
+    }
+  };
+
+  if (!isReady) {
+    return (
+      <div className="auth-wrapper">
+        <CowLoading message={t('Loading data...')} size="lg" fullScreen />
+      </div>
+    );
+  }
+
   if (isLoggedIn && subscriptionBlocked && !Repository.isSuperAdmin()) {
     return <PayNowScreen onLogout={handleLogout} />;
   }
@@ -206,7 +291,7 @@ function HomeContent() {
               <img src={appLogoPath} alt="Dairy ERP Logo" style={{ width: '70px', height: '70px', borderRadius: '14px', objectFit: 'contain' }} />
             </div>
             <h1 style={{ color: '#FFFFFF', fontSize: '2.6rem', fontWeight: 900, marginBottom: '8px', letterSpacing: '-0.04em' }}>
-              {t('Dairy ERP')}
+              {systemName}
             </h1>
             <p style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: '1rem', fontWeight: 500, lineHeight: 1.5, marginBottom: '56px' }}>
               {t('Manage Milk Sales Anywhere Offline First')}
@@ -265,7 +350,7 @@ function HomeContent() {
                   className="form-input" 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="seller@ganeshdairy.com"
+                  placeholder="seller@abielan.com"
                   style={{ padding: '10px 14px', fontSize: '0.92rem' }}
                   required
                 />
@@ -370,6 +455,10 @@ function HomeContent() {
                 />
               </div>
 
+              <div style={{ width: '100%', textAlign: 'left', fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '0 4px' }}>
+                {detectingIp ? 'Detecting your public IP address…' : detectedIp ? `Detected IP: ${detectedIp}` : detectIpError ? `IP detection failed: ${detectIpError}` : 'Public IP will be attached to signup request when available.'}
+              </div>
+
               <div className="form-group" style={{ width: '100%', marginBottom: 0 }}>
                 <label className="form-label">{t('ERP Security Password')}</label>
                 <div style={{ position: 'relative', width: '100%' }}>
@@ -415,8 +504,8 @@ function HomeContent() {
       {/* Sticky top navbar */}
       <header className="navbar">
         <div className="nav-logo" onClick={() => setActiveTab(0)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <img src="/abielan_app_logo.png" alt="Dairy ERP Logo" style={{ width: '28px', height: '28px', borderRadius: '6px', objectFit: 'contain' }} />
-          {t('Dairy ERP')}
+          <img src={appLogoPath} alt="Dairy ERP Logo" style={{ width: '28px', height: '28px', borderRadius: '6px', objectFit: 'contain' }} />
+          <span className="nav-logo-text">{systemName}</span>
         </div>
 
         {/* Navigation tabs moved here */}
@@ -435,6 +524,26 @@ function HomeContent() {
         </nav>
 
         <div className="nav-actions">
+          {/* View As User Selector */}
+          {canSwitchUser && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginRight: '8px' }}>
+              <label className="view-as-label" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                {t('View as')}
+              </label>
+              <select
+                value={selectedUserId || ''}
+                onChange={(e) => handleUserChange(e.target.value || null)}
+                className="form-input view-as-select"
+                style={{ width: '150px', height: '32px', padding: '2px 6px', fontSize: '0.8rem', borderRadius: '6px', cursor: 'pointer' }}
+              >
+                <option value="">{t('All')}</option>
+                {users.filter(u => u.role !== 'superadmin').map(u => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Theme Switcher */}
           <button 
             className="btn btn-outline" 
@@ -447,7 +556,7 @@ function HomeContent() {
 
           {/* Language Toggle */}
           <button 
-            className="btn btn-outline" 
+            className="btn btn-outline lang-toggle-btn" 
             onClick={() => setLanguage(language === 'en' ? 'ta' : 'en')}
             style={{ fontSize: '0.85rem', padding: '8px 12px' }}
           >
@@ -470,6 +579,7 @@ function HomeContent() {
       <main style={{ padding: '8px 0 40px 0', flex: 1 }}>
         {activeTab === 0 && canAccessPage('Dashboard') && (
           <DashboardTab 
+            key={selectedUserId || 'all'}
             onNavigateToTab={(idx) => setActiveTab(idx)}
             onSelectCustomer={(c) => {
               setPendingProfileCustomer(c);
@@ -478,17 +588,27 @@ function HomeContent() {
             onSettlePayment={handleSettleQuickPayment}
           />
         )}
-        {activeTab === 1 && canAccessPage('Sales') && <SalesTab onSuccessToast={triggerToast} />}
+        {activeTab === 1 && canAccessPage('Sales') && (
+          <SalesTab 
+            key={selectedUserId || 'all'} 
+            onSuccessToast={triggerToast} 
+            onSaleCreated={(sale) => {
+              setActiveTab(3);
+              setSelectedSale(sale);
+            }}
+          />
+        )}
         {activeTab === 2 && canAccessPage('Profiles') && (
           <ProfilesTab
+            key={selectedUserId || 'all'}
             onSuccessToast={triggerToast}
             initialCustomer={pendingProfileCustomer}
             onInitialCustomerConsumed={() => setPendingProfileCustomer(null)}
           />
         )}
-        {activeTab === 3 && canAccessPage('Bills') && <BillsTab onInvoiceClick={(sale) => setSelectedSale(sale)} />}
-        {activeTab === 4 && canAccessPage('Reports') && <ReportsTab />}
-        {activeTab === 5 && canAccessPage('Settings') && <SettingsTab onSuccessToast={triggerToast} onLogout={handleLogout} />}
+        {activeTab === 3 && canAccessPage('Bills') && <BillsTab key={selectedUserId || 'all'} onInvoiceClick={(sale) => setSelectedSale(sale)} />}
+        {activeTab === 4 && canAccessPage('Reports') && <ReportsTab key={selectedUserId || 'all'} />}
+        {activeTab === 5 && canAccessPage('Settings') && <SettingsTab key={selectedUserId || 'all'} onSuccessToast={triggerToast} onLogout={handleLogout} />}
       </main>
 
       {/* Footer copyright */}
