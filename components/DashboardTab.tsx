@@ -24,6 +24,7 @@ import RepositoryLib from '@/lib/repository';
 import { getCurrentUser } from '@/lib/permissions';
 
 interface DashboardTabProps {
+  viewAsUserId?: string;
   onNavigateToTab: (index: number) => void;
   onSelectCustomer: (customer: Customer) => void;
   onSettlePayment: (sale: Sale, paymentType: string) => void;

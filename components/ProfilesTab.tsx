@@ -8,7 +8,10 @@ import { hasPermission } from '@/lib/permissions';
 import { Search, Save, Trash2, ArrowLeft, Check, AlertCircle, Phone, MapPin, FileText, Droplet, Clock, CheckCircle2, ReceiptText, Plus, X } from 'lucide-react';
 
 interface ProfilesTabProps {
+  viewAsUserId?: string;
   onSuccessToast: () => void;
+  initialCustomer?: Customer | null;
+  onInitialCustomerConsumed?: () => void;
 }
 
 export default function ProfilesTab({ onSuccessToast }: ProfilesTabProps) {

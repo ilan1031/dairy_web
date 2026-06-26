@@ -29,7 +29,9 @@ import {
 } from 'lucide-react';
 
 interface SalesTabProps {
+  viewAsUserId?: string;
   onSuccessToast: () => void;
+  onSaleCreated?: (sale: Sale) => void;
 }
 
 export default function SalesTab({ onSuccessToast }: SalesTabProps) {

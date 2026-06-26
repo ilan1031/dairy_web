@@ -8,6 +8,7 @@ import { hasPermission } from '@/lib/permissions';
 import { Search, Receipt, Filter, CheckCircle, Clock, X, SlidersHorizontal } from 'lucide-react';
 
 interface BillsTabProps {
+  viewAsUserId?: string;
   onInvoiceClick: (sale: Sale) => void;
 }
 

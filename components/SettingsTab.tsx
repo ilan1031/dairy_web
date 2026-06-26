@@ -21,6 +21,7 @@ import AdminSettings from './AdminSettings';
 import { hasPermission } from '@/lib/permissions';
 
 interface SettingsTabProps {
+  viewAsUserId?: string;
   onSuccessToast: () => void;
   onLogout: () => void;
 }
