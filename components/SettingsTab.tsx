@@ -21,11 +21,12 @@ import AdminSettings from './AdminSettings';
 import { hasPermission } from '@/lib/permissions';
 
 interface SettingsTabProps {
+  viewAsUserId?: string;
   onSuccessToast: () => void;
   onLogout: () => void;
 }
 
-export default function SettingsTab({ onSuccessToast, onLogout }: SettingsTabProps) {
+export default function SettingsTab({ viewAsUserId, onSuccessToast, onLogout }: SettingsTabProps) {
   const { t, language, setLanguage } = useLanguage();
   const { isLightTheme, setLightTheme } = useTheme();
 

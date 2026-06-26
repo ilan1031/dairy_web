@@ -29,10 +29,12 @@ import {
 } from 'lucide-react';
 
 interface SalesTabProps {
+  viewAsUserId?: string;
   onSuccessToast: () => void;
+  onSaleCreated?: (sale: Sale) => void;
 }
 
-export default function SalesTab({ onSuccessToast }: SalesTabProps) {
+export default function SalesTab({ viewAsUserId, onSuccessToast, onSaleCreated }: SalesTabProps) {
   const { t } = useLanguage();
 
   // Procurement database states
@@ -70,7 +72,7 @@ export default function SalesTab({ onSuccessToast }: SalesTabProps) {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [viewAsUserId]);
 
   // Compute stock levels left for today (Android alignment)
   const todayStart = new Date();

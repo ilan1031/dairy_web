@@ -8,10 +8,18 @@ import { hasPermission } from '@/lib/permissions';
 import { Search, Save, Trash2, ArrowLeft, Check, AlertCircle, Phone, MapPin, FileText, Droplet, Clock, CheckCircle2, ReceiptText, Plus, X } from 'lucide-react';
 
 interface ProfilesTabProps {
+  viewAsUserId?: string;
   onSuccessToast: () => void;
+  initialCustomer?: Customer | null;
+  onInitialCustomerConsumed?: () => void;
 }
 
-export default function ProfilesTab({ onSuccessToast }: ProfilesTabProps) {
+export default function ProfilesTab({
+  viewAsUserId,
+  onSuccessToast,
+  initialCustomer,
+  onInitialCustomerConsumed,
+}: ProfilesTabProps) {
   const { t, language } = useLanguage();
   
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -53,7 +61,14 @@ export default function ProfilesTab({ onSuccessToast }: ProfilesTabProps) {
 
   useEffect(() => {
     loadData();
-  }, []);
+    setSelectedCust(null);
+  }, [viewAsUserId]);
+
+  useEffect(() => {
+    if (!initialCustomer) return;
+    setSelectedCust(initialCustomer);
+    onInitialCustomerConsumed?.();
+  }, [initialCustomer, onInitialCustomerConsumed]);
 
   if (!hasPermission('canRead')) {
     return (

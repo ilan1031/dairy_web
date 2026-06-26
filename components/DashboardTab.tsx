@@ -24,12 +24,14 @@ import RepositoryLib from '@/lib/repository';
 import { getCurrentUser } from '@/lib/permissions';
 
 interface DashboardTabProps {
+  viewAsUserId?: string;
   onNavigateToTab: (index: number) => void;
   onSelectCustomer: (customer: Customer) => void;
   onSettlePayment: (sale: Sale, paymentType: string) => void;
 }
 
 export default function DashboardTab({ 
+  viewAsUserId,
   onNavigateToTab, 
   onSelectCustomer,
   onSettlePayment 
@@ -99,7 +101,7 @@ export default function DashboardTab({
     // Refresh every 5s for rapid pulse
     const interval = setInterval(loadData, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [viewAsUserId]);
 
   useEffect(() => {
     setUsers(RepositoryLib.getUsers());

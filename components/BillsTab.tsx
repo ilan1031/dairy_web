@@ -8,6 +8,7 @@ import { hasPermission } from '@/lib/permissions';
 import { Search, Receipt, Filter, CheckCircle, Clock, X, SlidersHorizontal } from 'lucide-react';
 
 interface BillsTabProps {
+  viewAsUserId?: string;
   onInvoiceClick: (sale: Sale) => void;
 }
 
@@ -20,7 +21,7 @@ function parseDateStr(dateStr: string, isStart: boolean): number | null {
   return d.getTime();
 }
 
-export default function BillsTab({ onInvoiceClick }: BillsTabProps) {
+export default function BillsTab({ viewAsUserId, onInvoiceClick }: BillsTabProps) {
   const { t, language } = useLanguage();
 
   const [sales, setSales] = useState<Sale[]>([]);
@@ -37,7 +38,7 @@ export default function BillsTab({ onInvoiceClick }: BillsTabProps) {
 
   useEffect(() => {
     Repository.getAllSales().then(setSales).catch(console.error);
-  }, []);
+  }, [viewAsUserId]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
