@@ -250,17 +250,9 @@ function HomeContent() {
   const allowedUsers = Repository.getAllowedUsers();
   const canSwitchUser = isLoggedIn && allowedUsers.length > 1;
 
-  const handleUserChange = async (userId: string | null) => {
+  const handleUserChange = (userId: string | null) => {
     setSelectedUserId(userId);
-    setIsReady(false);
-    try {
-      await Repository.changeActiveUser(userId);
-      setUsers(Repository.getUsers());
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsReady(true);
-    }
+    Repository.setSelectedUserId(userId);
   };
 
   if (!isReady) {
@@ -530,9 +522,9 @@ function HomeContent() {
                 style={{ width: '150px', height: '32px', padding: '2px 6px', fontSize: '0.8rem', borderRadius: '6px', cursor: 'pointer' }}
               >
                 <option value="">{t('All')}</option>
-                {allowedUsers.filter(u => u.role !== 'superadmin' || u.id === 'builtin-admin').map(u => (
+                {allowedUsers.map(u => (
                   <option key={u.id} value={u.id}>
-                    {u.id === 'builtin-admin' ? t('System') : u.name}
+                    {u.id === 'system' ? t('System') : u.name}
                   </option>
                 ))}
               </select>
