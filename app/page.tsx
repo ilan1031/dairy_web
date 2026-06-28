@@ -247,15 +247,8 @@ function HomeContent() {
     triggerToast();
   };
 
-  const currentUser = Repository.getCurrentUser();
-  const canSwitchUser =
-    isLoggedIn && (
-      Repository.isSessionSuperAdmin() ||
-      Repository.isSuperAdmin() ||
-      Boolean(currentUser?.permissions?.canViewOthers) ||
-      currentUser?.permissions?.dataAccessScope?.mode === 'all' ||
-      currentUser?.permissions?.dataAccessScope?.mode === 'shared'
-    );
+  const allowedUsers = Repository.getAllowedUsers();
+  const canSwitchUser = isLoggedIn && allowedUsers.length > 1;
 
   const handleUserChange = async (userId: string | null) => {
     setSelectedUserId(userId);
@@ -537,7 +530,7 @@ function HomeContent() {
                 style={{ width: '150px', height: '32px', padding: '2px 6px', fontSize: '0.8rem', borderRadius: '6px', cursor: 'pointer' }}
               >
                 <option value="">{t('All')}</option>
-                {users.filter(u => u.role !== 'superadmin').map(u => (
+                {allowedUsers.filter(u => u.role !== 'superadmin').map(u => (
                   <option key={u.id} value={u.id}>{u.name}</option>
                 ))}
               </select>

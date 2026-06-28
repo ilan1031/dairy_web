@@ -172,6 +172,8 @@ class Repository {
   private static _initialized = false;
   private static _initPromise: Promise<void> | null = null;
   private static _sessionSuperAdmin = false;
+  private static selectedUserId: string | null = null;
+  private static originalSessionUser: UserModel | null = null;
 
   static isSessionSuperAdmin(): boolean {
     return this._sessionSuperAdmin;
@@ -219,6 +221,9 @@ class Repository {
     }
     if (data.sessionUser) {
       this.cache.currentUser = data.sessionUser as unknown as UserModel;
+      if (!this.originalSessionUser) {
+        this.originalSessionUser = data.sessionUser as unknown as UserModel;
+      }
     }
   }
 
@@ -248,6 +253,9 @@ class Repository {
     if (isSuperAdmin || user?.role === 'superadmin') {
       this._sessionSuperAdmin = true;
     }
+    if (user && !this.originalSessionUser) {
+      this.originalSessionUser = user;
+    }
   }
 
   private static async _doInitialize(selectedUserId?: string | null): Promise<void> {
@@ -262,7 +270,8 @@ class Repository {
   }
 
   static async changeActiveUser(selectedUserId: string | null): Promise<void> {
-    this.clearSession();
+    this.clearSession(true);
+    this.selectedUserId = selectedUserId;
     await this.initialize(selectedUserId);
   }
 
@@ -272,10 +281,14 @@ class Repository {
     await this.initialize();
   }
 
-  static clearSession(): void {
+  static clearSession(isChangingUser = false): void {
     this.cache = emptyCache();
     this._initialized = false;
     this._initPromise = null;
+    if (!isChangingUser) {
+      this.selectedUserId = null;
+      this.originalSessionUser = null;
+    }
   }
 
   static exportSnapshot(): BootstrapPayload {
@@ -299,7 +312,42 @@ class Repository {
     this._initialized = true;
   }
 
+  static getOriginalSessionUser(): UserModel | null {
+    return this.originalSessionUser || this.cache.currentUser;
+  }
+
+  static getAllowedUsers(): UserModel[] {
+    const sessionUser = this.getOriginalSessionUser();
+    if (!sessionUser) return [];
+
+    if (this.isSuperAdmin() || sessionUser.role === 'superadmin' || sessionUser.permissions?.dataAccessScope?.mode === 'all') {
+      return this.cache.users;
+    }
+
+    const scope = sessionUser.permissions?.dataAccessScope || { mode: 'own', sharedUserIds: [] };
+    const allowedIds = new Set<string>();
+    allowedIds.add(sessionUser.id);
+
+    if (scope.mode === 'shared' && scope.sharedUserIds) {
+      scope.sharedUserIds.forEach((id) => allowedIds.add(id));
+    }
+
+    return this.cache.users.filter((u) => allowedIds.has(u.id));
+  }
+
   static getProfile(): Profile {
+    const user = this.getCurrentUser();
+    if (user && this.selectedUserId && user.id === this.selectedUserId) {
+      return {
+        businessName: user.profile?.department || this.cache.profile?.businessName || user.name || '',
+        ownerName: user.profile?.displayName || user.name || '',
+        mobileNumber: user.profile?.phone || '',
+        emailAddress: user.email || '',
+        signupTimestamp: user.createdAt,
+        isLightTheme: this.cache.profile?.isLightTheme ?? true,
+        language: this.cache.profile?.language ?? 'en',
+      };
+    }
     if (!this.cache.profile) {
       return {
         businessName: '',
@@ -322,7 +370,7 @@ class Repository {
   }
 
   private static resolveOwnerMeta(ownerUserId?: string): { ownerName?: string; ownerEmail?: string } {
-    const targetUserId = ownerUserId || this.cache.currentUser?.id;
+    const targetUserId = ownerUserId || this.selectedUserId || this.cache.currentUser?.id;
     if (!targetUserId) return {};
     const user = this.cache.users.find((u) => u.id === targetUserId || u.email === targetUserId);
     if (!user) return {};
@@ -338,7 +386,13 @@ class Repository {
   }
 
   static async getCustomers(batchSize = 20, lastVisibleId?: string): Promise<{ data: Customer[]; hasMore: boolean }> {
-    const all = [...this.cache.customers].sort((a, b) => a.name.localeCompare(b.name)).map((customer) => this.withOwnerMeta(customer));
+    let all = [...this.cache.customers];
+    if (this.selectedUserId) {
+      const user = this.getUserById(this.selectedUserId);
+      const email = user?.email;
+      all = all.filter((c) => c.ownerUserId === this.selectedUserId || (email && c.ownerEmail === email));
+    }
+    all = all.sort((a, b) => a.name.localeCompare(b.name)).map((customer) => this.withOwnerMeta(customer));
     let startIndex = 0;
     if (lastVisibleId) {
       const index = all.findIndex((c) => c.id === lastVisibleId);
@@ -349,11 +403,17 @@ class Repository {
   }
 
   static async getAllCustomers(): Promise<Customer[]> {
-    return this.cache.customers.map((customer) => this.withOwnerMeta(customer));
+    let all = [...this.cache.customers];
+    if (this.selectedUserId) {
+      const user = this.getUserById(this.selectedUserId);
+      const email = user?.email;
+      all = all.filter((c) => c.ownerUserId === this.selectedUserId || (email && c.ownerEmail === email));
+    }
+    return all.map((customer) => this.withOwnerMeta(customer));
   }
 
   static async saveCustomer(customer: Customer): Promise<void> {
-    const ownerUserId = customer.ownerUserId || this.cache.currentUser?.id;
+    const ownerUserId = customer.ownerUserId || this.selectedUserId || this.cache.currentUser?.id;
     const updatedCustomer = { ...customer, ownerUserId };
     const idx = this.cache.customers.findIndex((c) => c.id === customer.id);
     const isNew = idx === -1;
@@ -370,7 +430,13 @@ class Repository {
   }
 
   static async getSales(batchSize = 20, lastVisibleId?: string, filterCustomer?: string, filterDateRange?: string): Promise<{ data: Sale[]; hasMore: boolean }> {
-    let filtered = [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
+    let filtered = [...this.cache.sales];
+    if (this.selectedUserId) {
+      const user = this.getUserById(this.selectedUserId);
+      const email = user?.email;
+      filtered = filtered.filter((s) => s.ownerUserId === this.selectedUserId || (email && s.ownerEmail === email));
+    }
+    filtered = filtered.sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
     if (filterCustomer) {
       filtered = filtered.filter((s) => s.customerName.toLowerCase().includes(filterCustomer.toLowerCase()));
     }
@@ -393,11 +459,17 @@ class Repository {
   }
 
   static async getAllSales(): Promise<Sale[]> {
-    return [...this.cache.sales].sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
+    let all = [...this.cache.sales];
+    if (this.selectedUserId) {
+      const user = this.getUserById(this.selectedUserId);
+      const email = user?.email;
+      all = all.filter((s) => s.ownerUserId === this.selectedUserId || (email && s.ownerEmail === email));
+    }
+    return all.sort((a, b) => b.createdAt - a.createdAt).map((sale) => this.withOwnerMeta(sale));
   }
 
   static async saveSale(sale: Sale): Promise<void> {
-    const ownerUserId = sale.ownerUserId || this.cache.currentUser?.id;
+    const ownerUserId = sale.ownerUserId || this.selectedUserId || this.cache.currentUser?.id;
     const updatedSale = { ...sale, ownerUserId };
     this.cache.sales.push(updatedSale);
     this.logAudit('SALE_CREATE', 'sale', sale.id, {
@@ -426,7 +498,13 @@ class Repository {
   }
 
   static getPriceConfigs(): PriceConfig[] {
-    return this.cache.priceConfigs.map((config) => this.withOwnerMeta(config));
+    let configs = [...this.cache.priceConfigs];
+    if (this.selectedUserId) {
+      const user = this.getUserById(this.selectedUserId);
+      const email = user?.email;
+      configs = configs.filter((p) => p.ownerUserId === this.selectedUserId || (email && p.ownerEmail === email));
+    }
+    return configs.map((config) => this.withOwnerMeta(config));
   }
 
   static async savePriceConfig(milkType: string, newPrice: number, oldMilkType?: string): Promise<void> {
@@ -435,12 +513,13 @@ class Repository {
     }
     const idx = this.cache.priceConfigs.findIndex((p) => p.milkType === milkType);
     const oldPrice = idx !== -1 ? this.cache.priceConfigs[idx].currentPrice : 40;
-    const updatedPrice = { milkType, currentPrice: newPrice, updatedAt: Date.now(), ownerUserId: this.cache.currentUser?.id };
+    const ownerUserId = this.selectedUserId || this.cache.currentUser?.id;
+    const updatedPrice = { milkType, currentPrice: newPrice, updatedAt: Date.now(), ownerUserId };
     if (idx !== -1) this.cache.priceConfigs[idx] = updatedPrice;
     else this.cache.priceConfigs.push(updatedPrice);
     this.logAudit('PRICE_UPDATE', 'price_config', milkType, { oldPrice, newPrice });
     try {
-      const result = (await savePriceApi(milkType, newPrice, oldMilkType, this.cache.currentUser?.id)) as { updatedPrice: PriceConfig; log: PriceLog };
+      const result = (await savePriceApi(milkType, newPrice, oldMilkType, ownerUserId)) as { updatedPrice: PriceConfig; log: PriceLog };
       if (result?.updatedPrice) {
         const pIdx = this.cache.priceConfigs.findIndex((p) => p.milkType === milkType);
         if (pIdx !== -1) this.cache.priceConfigs[pIdx] = result.updatedPrice;
@@ -455,7 +534,8 @@ class Repository {
     this.cache.priceConfigs = this.cache.priceConfigs.filter((p) => p.milkType !== milkType);
     this.logAudit('PRICE_DELETE', 'price_config', milkType);
     try {
-      await deletePriceApi(milkType, this.cache.currentUser?.id);
+      const ownerUserId = this.selectedUserId || this.cache.currentUser?.id;
+      await deletePriceApi(milkType, ownerUserId);
     } catch (err) {
       console.error('[Repo] Price delete failed:', err);
     }
@@ -482,6 +562,9 @@ class Repository {
   }
 
   static getCurrentUser(): UserModel | null {
+    if (this.selectedUserId) {
+      return this.cache.users.find((u) => u.id === this.selectedUserId) || this.cache.currentUser;
+    }
     return this.cache.currentUser;
   }
 
@@ -490,11 +573,17 @@ class Repository {
   }
 
   static getMilkInventories(): MilkInventory[] {
-    return this.cache.inventory.map((inventory) => this.withOwnerMeta(inventory));
+    let inventory = [...this.cache.inventory];
+    if (this.selectedUserId) {
+      const user = this.getUserById(this.selectedUserId);
+      const email = user?.email;
+      inventory = inventory.filter((i) => i.ownerUserId === this.selectedUserId || (email && i.ownerEmail === email));
+    }
+    return inventory.map((inventory) => this.withOwnerMeta(inventory));
   }
 
   static async saveMilkInventory(inventory: MilkInventory): Promise<void> {
-    const ownerUserId = inventory.ownerUserId || this.cache.currentUser?.id;
+    const ownerUserId = inventory.ownerUserId || this.selectedUserId || this.cache.currentUser?.id;
     const updatedInventory = { ...inventory, ownerUserId };
     const idx = this.cache.inventory.findIndex((i) => i.dateStr === inventory.dateStr);
     if (idx !== -1) this.cache.inventory[idx] = updatedInventory;
@@ -507,10 +596,11 @@ class Repository {
   }
 
   static saveBillingConfig(config: Partial<BillingConfig>, auditDetails?: Record<string, unknown>): BillingConfig {
+    const ownerUserId = this.selectedUserId || this.cache.currentUser?.id;
     const updated = normalizeBillingConfig({ ...this.getBillingConfig(), ...config, updatedAt: Date.now() });
     this.cache.billingConfig = updated;
     this.logAudit('CONFIG_UPDATE', 'billing_config', 'global', auditDetails || { section: 'billing' });
-    saveBillingApi(updated, this.cache.currentUser?.id).catch((err) => console.error('[Repo] Billing save failed:', err));
+    saveBillingApi(updated, ownerUserId).catch((err) => console.error('[Repo] Billing save failed:', err));
     return updated;
   }
 
@@ -528,10 +618,11 @@ class Repository {
   }
 
   static async saveBrandingConfig(config: Partial<BrandingConfig>, auditDetails?: Record<string, unknown>): Promise<BrandingConfig> {
+    const ownerUserId = this.selectedUserId || this.cache.currentUser?.id;
     const updated = { ...this.getBrandingConfig(), ...config, updatedAt: Date.now() };
     this.cache.brandingConfig = updated;
     this.logAudit('CONFIG_UPDATE', 'branding_config', 'global', auditDetails || { section: 'branding' });
-    await saveBrandingApi(updated, this.cache.currentUser?.id).catch((err) => console.error('[Repo] Branding save failed:', err));
+    await saveBrandingApi(updated, ownerUserId).catch((err) => console.error('[Repo] Branding save failed:', err));
     return updated;
   }
 
