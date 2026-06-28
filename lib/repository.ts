@@ -320,9 +320,7 @@ class Repository {
     const sessionUser = this.getOriginalSessionUser();
     if (!sessionUser) return [];
 
-    if (this.isSuperAdmin() || sessionUser.role === 'superadmin' || sessionUser.permissions?.dataAccessScope?.mode === 'all') {
-      return this.cache.users;
-    }
+    const isSuperAdminUser = this.isSuperAdmin() || sessionUser.role === 'superadmin' || sessionUser.permissions?.dataAccessScope?.mode === 'all';
 
     const scope = sessionUser.permissions?.dataAccessScope || { mode: 'own', sharedUserIds: [] };
     const allowedIds = new Set<string>();
@@ -332,7 +330,83 @@ class Repository {
       scope.sharedUserIds.forEach((id) => allowedIds.add(id));
     }
 
-    return this.cache.users.filter((u) => allowedIds.has(u.id));
+    // Include builtin-admin for superadmins or system admins
+    if (isSuperAdminUser) {
+      allowedIds.add('builtin-admin');
+    }
+
+    // Collect all ownerUserIds and ownerEmails present in the cache data (sales, customers, price configs, inventory)
+    const activeOwnerMap = new Map<string, { id: string; name: string; email: string }>();
+
+    this.cache.sales.forEach((s) => {
+      if (s.ownerUserId) {
+        activeOwnerMap.set(s.ownerUserId, {
+          id: s.ownerUserId,
+          name: s.ownerName || s.ownerEmail || s.ownerUserId,
+          email: s.ownerEmail || '',
+        });
+      }
+    });
+    this.cache.customers.forEach((c) => {
+      if (c.ownerUserId) {
+        activeOwnerMap.set(c.ownerUserId, {
+          id: c.ownerUserId,
+          name: c.ownerName || c.ownerEmail || c.ownerUserId,
+          email: c.ownerEmail || '',
+        });
+      }
+    });
+    this.cache.priceConfigs.forEach((p) => {
+      if (p.ownerUserId) {
+        activeOwnerMap.set(p.ownerUserId, {
+          id: p.ownerUserId,
+          name: p.ownerName || p.ownerEmail || p.ownerUserId,
+          email: p.ownerEmail || '',
+        });
+      }
+    });
+    this.cache.inventory.forEach((i) => {
+      if (i.ownerUserId) {
+        activeOwnerMap.set(i.ownerUserId, {
+          id: i.ownerUserId,
+          name: i.ownerName || i.ownerEmail || i.ownerUserId,
+          email: i.ownerEmail || '',
+        });
+      }
+    });
+
+    const resultUsers = this.cache.users.filter((u) => {
+      return isSuperAdminUser || allowedIds.has(u.id) || activeOwnerMap.has(u.id) || (u.email && [...activeOwnerMap.values()].some(v => v.email === u.email));
+    });
+
+    // Add any missing users from activeOwnerMap (skeleton models)
+    activeOwnerMap.forEach((val, id) => {
+      if (!resultUsers.some((u) => u.id === id)) {
+        resultUsers.push({
+          id: val.id,
+          name: val.name,
+          email: val.email,
+          role: 'user',
+          active: true,
+          permissions: {
+            canCreate: false,
+            canRead: true,
+            canUpdate: false,
+            canDelete: false,
+            allowedPages: [],
+            canUseSubscription: false,
+            canViewOthers: false,
+            pagePermissions: {},
+            fieldPermissions: {},
+            dataAccessScope: { mode: 'own', sharedUserIds: [] }
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+      }
+    });
+
+    return resultUsers;
   }
 
   static getProfile(): Profile {
