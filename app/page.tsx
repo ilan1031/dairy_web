@@ -530,8 +530,10 @@ function HomeContent() {
                 style={{ width: '150px', height: '32px', padding: '2px 6px', fontSize: '0.8rem', borderRadius: '6px', cursor: 'pointer' }}
               >
                 <option value="">{t('All')}</option>
-                {allowedUsers.filter(u => u.role !== 'superadmin').map(u => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
+                {allowedUsers.filter(u => u.role !== 'superadmin' || u.id === 'builtin-admin').map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.id === 'builtin-admin' ? t('System') : u.name}
+                  </option>
                 ))}
               </select>
             </div>
