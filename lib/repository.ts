@@ -330,11 +330,6 @@ class Repository {
       scope.sharedUserIds.forEach((id) => allowedIds.add(id));
     }
 
-    // Include builtin-admin for superadmins or system admins
-    if (isSuperAdminUser) {
-      allowedIds.add('builtin-admin');
-    }
-
     // Collect all ownerUserIds and ownerEmails present in the cache data (sales, customers, price configs, inventory)
     const activeOwnerMap = new Map<string, { id: string; name: string; email: string }>();
 
@@ -376,11 +371,13 @@ class Repository {
     });
 
     const resultUsers = this.cache.users.filter((u) => {
+      if (u.role === 'superadmin' && u.id !== 'builtin-admin') return false;
       return isSuperAdminUser || allowedIds.has(u.id) || activeOwnerMap.has(u.id) || (u.email && [...activeOwnerMap.values()].some(v => v.email === u.email));
     });
 
     // Add any missing users from activeOwnerMap (skeleton models)
     activeOwnerMap.forEach((val, id) => {
+      if (id === 'system' || id === 'builtin-admin') return;
       if (!resultUsers.some((u) => u.id === id)) {
         resultUsers.push({
           id: val.id,
@@ -406,10 +403,48 @@ class Repository {
       }
     });
 
-    return resultUsers;
+    const hasSystemData = activeOwnerMap.has('system') || activeOwnerMap.has('builtin-admin');
+    if (isSuperAdminUser || hasSystemData) {
+      const filteredResult = resultUsers.filter((u) => u.id !== 'builtin-admin' && u.id !== 'system');
+      filteredResult.push({
+        id: 'system',
+        name: 'System',
+        email: '',
+        role: 'superadmin',
+        active: true,
+        permissions: {
+          canCreate: true,
+          canRead: true,
+          canUpdate: true,
+          canDelete: true,
+          allowedPages: ['*'],
+          canUseSubscription: true,
+          canViewOthers: true,
+          pagePermissions: {},
+          fieldPermissions: {},
+          dataAccessScope: { mode: 'all', sharedUserIds: [] }
+        },
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      return filteredResult;
+    }
+
+    return resultUsers.filter((u) => u.id !== 'builtin-admin' && u.id !== 'system');
   }
 
   static getProfile(): Profile {
+    if (this.selectedUserId === 'system') {
+      return {
+        businessName: 'System ERP',
+        ownerName: 'System',
+        mobileNumber: '',
+        emailAddress: '',
+        signupTimestamp: Date.now(),
+        isLightTheme: this.cache.profile?.isLightTheme ?? true,
+        language: this.cache.profile?.language ?? 'en',
+      };
+    }
     const user = this.getCurrentUser();
     if (user && this.selectedUserId && user.id === this.selectedUserId) {
       return {
@@ -461,7 +496,9 @@ class Repository {
 
   static async getCustomers(batchSize = 20, lastVisibleId?: string): Promise<{ data: Customer[]; hasMore: boolean }> {
     let all = [...this.cache.customers];
-    if (this.selectedUserId) {
+    if (this.selectedUserId === 'system') {
+      all = all.filter((c) => c.ownerUserId === 'system' || c.ownerUserId === 'builtin-admin' || !c.ownerUserId);
+    } else if (this.selectedUserId) {
       const user = this.getUserById(this.selectedUserId);
       const email = user?.email;
       all = all.filter((c) => c.ownerUserId === this.selectedUserId || (email && c.ownerEmail === email));
@@ -478,7 +515,9 @@ class Repository {
 
   static async getAllCustomers(): Promise<Customer[]> {
     let all = [...this.cache.customers];
-    if (this.selectedUserId) {
+    if (this.selectedUserId === 'system') {
+      all = all.filter((c) => c.ownerUserId === 'system' || c.ownerUserId === 'builtin-admin' || !c.ownerUserId);
+    } else if (this.selectedUserId) {
       const user = this.getUserById(this.selectedUserId);
       const email = user?.email;
       all = all.filter((c) => c.ownerUserId === this.selectedUserId || (email && c.ownerEmail === email));
@@ -505,7 +544,9 @@ class Repository {
 
   static async getSales(batchSize = 20, lastVisibleId?: string, filterCustomer?: string, filterDateRange?: string): Promise<{ data: Sale[]; hasMore: boolean }> {
     let filtered = [...this.cache.sales];
-    if (this.selectedUserId) {
+    if (this.selectedUserId === 'system') {
+      filtered = filtered.filter((s) => s.ownerUserId === 'system' || s.ownerUserId === 'builtin-admin' || !s.ownerUserId);
+    } else if (this.selectedUserId) {
       const user = this.getUserById(this.selectedUserId);
       const email = user?.email;
       filtered = filtered.filter((s) => s.ownerUserId === this.selectedUserId || (email && s.ownerEmail === email));
@@ -534,7 +575,9 @@ class Repository {
 
   static async getAllSales(): Promise<Sale[]> {
     let all = [...this.cache.sales];
-    if (this.selectedUserId) {
+    if (this.selectedUserId === 'system') {
+      all = all.filter((s) => s.ownerUserId === 'system' || s.ownerUserId === 'builtin-admin' || !s.ownerUserId);
+    } else if (this.selectedUserId) {
       const user = this.getUserById(this.selectedUserId);
       const email = user?.email;
       all = all.filter((s) => s.ownerUserId === this.selectedUserId || (email && s.ownerEmail === email));
@@ -573,7 +616,9 @@ class Repository {
 
   static getPriceConfigs(): PriceConfig[] {
     let configs = [...this.cache.priceConfigs];
-    if (this.selectedUserId) {
+    if (this.selectedUserId === 'system') {
+      configs = configs.filter((p) => p.ownerUserId === 'system' || p.ownerUserId === 'builtin-admin' || !p.ownerUserId);
+    } else if (this.selectedUserId) {
       const user = this.getUserById(this.selectedUserId);
       const email = user?.email;
       configs = configs.filter((p) => p.ownerUserId === this.selectedUserId || (email && p.ownerEmail === email));
@@ -635,10 +680,11 @@ class Repository {
     this.cache.currentUser = this.cache.users.find((x) => x.id === userIdOrEmail || x.email === userIdOrEmail) || null;
   }
 
+  static setSelectedUserId(userId: string | null): void {
+    this.selectedUserId = userId;
+  }
+
   static getCurrentUser(): UserModel | null {
-    if (this.selectedUserId) {
-      return this.cache.users.find((u) => u.id === this.selectedUserId) || this.cache.currentUser;
-    }
     return this.cache.currentUser;
   }
 
@@ -648,7 +694,9 @@ class Repository {
 
   static getMilkInventories(): MilkInventory[] {
     let inventory = [...this.cache.inventory];
-    if (this.selectedUserId) {
+    if (this.selectedUserId === 'system') {
+      inventory = inventory.filter((i) => i.ownerUserId === 'system' || i.ownerUserId === 'builtin-admin' || !i.ownerUserId);
+    } else if (this.selectedUserId) {
       const user = this.getUserById(this.selectedUserId);
       const email = user?.email;
       inventory = inventory.filter((i) => i.ownerUserId === this.selectedUserId || (email && i.ownerEmail === email));
