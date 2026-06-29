@@ -393,6 +393,18 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
   const [sessionHours, setSessionHours] = useState('8');
   const [loginHours, setLoginHours] = useState('24');
   const [subscriptionDays, setSubscriptionDays] = useState('30');
+  const [allowRegistration, setAllowRegistration] = useState(true);
+  const [allowLogin, setAllowLogin] = useState(true);
+  const [signupCanCreate, setSignupCanCreate] = useState(true);
+  const [signupCanRead, setSignupCanRead] = useState(true);
+  const [signupCanUpdate, setSignupCanUpdate] = useState(true);
+  const [signupCanDelete, setSignupCanDelete] = useState(false);
+  const [signupCanUseSubscription, setSignupCanUseSubscription] = useState(false);
+  const [signupAllowedPages, setSignupAllowedPages] = useState('Dashboard,Sales,Bills,Profiles,Settings');
+  const [signupSubscriptionsEnabled, setSignupSubscriptionsEnabled] = useState(false);
+  const [signupSubscriptionPlan, setSignupSubscriptionPlan] = useState('premium');
+  const [signupSubscriptionDays, setSignupSubscriptionDays] = useState('30');
+  const [signupSubscriptionMessage, setSignupSubscriptionMessage] = useState('Your signup subscription has expired. Contact admin to renew.');
   const [tokenConfigSaving, setTokenConfigSaving] = useState(false);
 
   const [ipQuery, setIpQuery] = useState('');
@@ -430,6 +442,28 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
         setSessionHours(String(tokenConfig.sessionExpirySeconds / 3600));
         setLoginHours(String(tokenConfig.loginExpirySeconds / 3600));
         setSubscriptionDays(String(tokenConfig.subscriptionExpirySeconds / (24 * 3600)));
+        setAllowRegistration(tokenConfig.allowRegistration !== false);
+        setAllowLogin(tokenConfig.allowLogin !== false);
+
+        const defaults = tokenConfig.signupDefaults || {};
+        const perms = defaults.permissions || {};
+        setSignupCanCreate(perms.canCreate ?? true);
+        setSignupCanRead(perms.canRead ?? true);
+        setSignupCanUpdate(perms.canUpdate ?? true);
+        setSignupCanDelete(perms.canDelete ?? false);
+        setSignupCanUseSubscription(perms.canUseSubscription ?? Boolean(defaults.subscription?.enabled));
+        setSignupAllowedPages(
+          Array.isArray(perms.allowedPages) ? perms.allowedPages.join(',') : 'Dashboard,Sales,Bills,Profiles,Settings'
+        );
+
+        setSignupSubscriptionsEnabled(Boolean(defaults.subscription?.enabled));
+        setSignupSubscriptionPlan(defaults.subscription?.plan || 'premium');
+        setSignupSubscriptionDays(
+          defaults.subscription?.expiresInDays !== undefined ? String(defaults.subscription.expiresInDays) : '30'
+        );
+        setSignupSubscriptionMessage(
+          defaults.subscription?.paymentMessage || 'Your signup subscription has expired. Contact admin to renew.'
+        );
       }
       setSelectedIds((prev) => prev.filter((id) => mapped.some((u) => u.id === id)));
       const current = selectedRef.current;
@@ -462,6 +496,27 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
         sessionExpirySeconds,
         loginExpirySeconds,
         subscriptionExpirySeconds,
+        allowRegistration,
+        allowLogin,
+        signupDefaults: {
+          permissions: {
+            canCreate: signupCanCreate,
+            canRead: signupCanRead,
+            canUpdate: signupCanUpdate,
+            canDelete: signupCanDelete,
+            canUseSubscription: signupCanUseSubscription,
+            allowedPages: signupAllowedPages
+              .split(',')
+              .map((value) => value.trim())
+              .filter(Boolean),
+          },
+          subscription: {
+            enabled: signupSubscriptionsEnabled,
+            plan: signupSubscriptionPlan.trim() || 'premium',
+            expiresInDays: Number(signupSubscriptionDays) || undefined,
+            paymentMessage: signupSubscriptionMessage.trim(),
+          },
+        },
       });
       onSuccessToast?.('Token configurations updated.');
     } catch (err) {
@@ -746,6 +801,113 @@ export default function AdminSettings({ onBack, onSuccessToast }: AdminSettingsP
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
               <button type="submit" className="btn btn-primary" disabled={tokenConfigSaving}>
                 {tokenConfigSaving ? <CowLoading size="xs" inline /> : 'Update Expirations'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {isSuperAdminSession() && (
+        <div className="card">
+          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Shield size={16} /> Registration & Sign-in Policies
+          </h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 8 }}>
+            Control whether new users can register, whether login is allowed, and what default permission/subscription settings apply at signup.
+          </p>
+          <form onSubmit={handleSaveTokenConfig} style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>
+                  Allow New Registration
+                </label>
+                <Switch checked={allowRegistration} onChange={setAllowRegistration} />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>
+                  Allow Sign-in
+                </label>
+                <Switch checked={allowLogin} onChange={setAllowLogin} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Default Signup Pages</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={signupAllowedPages}
+                  onChange={(e) => setSignupAllowedPages(e.target.value)}
+                  placeholder="Dashboard,Sales,Bills,Profiles,Settings"
+                />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Default Create Permission</label>
+                <Switch checked={signupCanCreate} onChange={setSignupCanCreate} />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Default Update Permission</label>
+                <Switch checked={signupCanUpdate} onChange={setSignupCanUpdate} />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Default Delete Permission</label>
+                <Switch checked={signupCanDelete} onChange={setSignupCanDelete} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Default Read Permission</label>
+                <Switch checked={signupCanRead} onChange={setSignupCanRead} />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Signup Subscription Allowed</label>
+                <Switch checked={signupCanUseSubscription} onChange={setSignupCanUseSubscription} />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Grant Subscription on Signup</label>
+                <Switch checked={signupSubscriptionsEnabled} onChange={setSignupSubscriptionsEnabled} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Signup Subscription Plan</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={signupSubscriptionPlan}
+                  onChange={(e) => setSignupSubscriptionPlan(e.target.value)}
+                  placeholder="premium"
+                />
+              </div>
+              <div>
+                <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Signup Subscription Days</label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  className="form-input"
+                  value={signupSubscriptionDays}
+                  onChange={(e) => setSignupSubscriptionDays(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="form-label" style={{ display: 'block', marginBottom: 4 }}>Signup Subscription Message</label>
+              <input
+                type="text"
+                className="form-input"
+                value={signupSubscriptionMessage}
+                onChange={(e) => setSignupSubscriptionMessage(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+              <button type="submit" className="btn btn-primary" disabled={tokenConfigSaving}>
+                {tokenConfigSaving ? <CowLoading size="xs" inline /> : 'Update Registration Policy'}
               </button>
             </div>
           </form>
