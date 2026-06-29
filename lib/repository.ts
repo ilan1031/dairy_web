@@ -104,6 +104,17 @@ export interface TokenConfig {
   sessionExpirySeconds: number;
   loginExpirySeconds: number;
   subscriptionExpirySeconds: number;
+  allowRegistration?: boolean;
+  allowLogin?: boolean;
+  signupDefaults?: {
+    permissions?: Partial<PermissionSet>;
+    subscription?: {
+      enabled?: boolean;
+      plan?: string;
+      expiresInDays?: number;
+      paymentMessage?: string;
+    };
+  };
   updatedAt: number;
 }
 

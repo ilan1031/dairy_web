@@ -197,6 +197,11 @@ function HomeContent() {
       const data = await res.json();
 
       if (data.success) {
+        if (data.loginBlocked) {
+          setAuthError('Registration succeeded, but sign-in is currently disabled by admin. Please wait for approval.');
+          return;
+        }
+
         localStorage.setItem('dairy_is_logged_in', 'true');
         Repository.clearSession();
         clearWhoamiPromise();
